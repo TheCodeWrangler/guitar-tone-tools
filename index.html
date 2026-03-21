@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ocean Adventure — Save Your Friends!</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="ocean">
+    <div class="bubbles" aria-hidden="true"></div>
+    <div class="light-rays" aria-hidden="true"></div>
+
+    <header class="game-header">
+      <h1 id="game-title">Ocean Adventure</h1>
+      <p class="subtitle" id="game-subtitle">Pick a character and save your friends!</p>
+      <div class="timer-display">
+        <span class="timer-label">Time</span>
+        <span id="timer-value" class="timer-value">90</span>
+      </div>
+      <div class="level-badge" id="level-badge">Level <span id="level-num">1</span></div>
+      <div class="friends-found">
+        <span class="friends-count">0</span> / <span class="friends-goal" id="friends-goal">1</span> saved
+      </div>
+      <button type="button" class="mute-btn" id="mute-btn" title="Toggle sound">🔊</button>
+      <div class="powerup-indicator hidden" id="powerup-indicator">
+        <span id="powerup-icon" class="powerup-icon"></span>
+        <span id="powerup-timer" class="powerup-timer"></span>
+      </div>
+    </header>
+
+    <div class="game-world" id="game-world" tabindex="0">
+      <div id="world-inner" class="world-inner">
+        <div id="maze-container" class="maze-container"></div>
+        <div id="trail-container" class="trail-container"></div>
+        <div id="mermaid" class="mermaid" role="img" aria-label="Turtle character">
+          <span class="mermaid-emoji player-emoji">🐢</span>
+          <span class="cute-heart" aria-hidden="true">💕</span>
+        </div>
+        <div id="friends-container" class="friends-container"></div>
+      </div>
+    </div>
+
+    <div id="start-screen" class="start-screen" role="dialog" aria-labelledby="start-title">
+      <div class="start-inner">
+        <h2 id="start-title">Ocean Adventure</h2>
+        <p class="start-instructions">Swim through the <strong>shipwreck</strong> and save your friends before time runs out!</p>
+        <p class="start-step">Pick your character:</p>
+        <div class="char-picker">
+          <button type="button" class="char-option" data-char="🧜‍♀️" data-name="Mermaid">
+            <span class="char-emoji">🧜‍♀️</span>
+            <span class="char-name">Mermaid</span>
+          </button>
+          <button type="button" class="char-option selected" data-char="🐢" data-name="Turtle">
+            <span class="char-emoji">🐢</span>
+            <span class="char-name">Turtle</span>
+          </button>
+          <button type="button" class="char-option" data-char="🐸" data-name="Frog">
+            <span class="char-emoji">🐸</span>
+            <span class="char-name">Frog</span>
+          </button>
+          <button type="button" class="char-option locked" data-char="🐬" data-name="Dolphin" data-unlock="5" disabled>
+            <span class="char-emoji">🐬</span>
+            <span class="char-name">Level 5</span>
+          </button>
+          <button type="button" class="char-option locked" data-char="🐋" data-name="Whale" data-unlock="8" disabled>
+            <span class="char-emoji">🐋</span>
+            <span class="char-name">Level 8</span>
+          </button>
+          <button type="button" class="char-option locked" data-char="🦈" data-name="Shark" data-unlock="12" disabled>
+            <span class="char-emoji">🦈</span>
+            <span class="char-name">Level 12</span>
+          </button>
+        </div>
+        <p class="start-step">Use these keys to swim:</p>
+        <div class="control-keys">
+          <span class="key"><kbd>↑</kbd> Up</span>
+          <span class="key"><kbd>↓</kbd> Down</span>
+          <span class="key"><kbd>←</kbd> Left</span>
+          <span class="key"><kbd>→</kbd> Right</span>
+        </div>
+        <div class="level-picker hidden" id="level-picker">
+          <label class="start-step" for="start-level-select">Start from level:</label>
+          <div class="level-select-row">
+            <button type="button" class="level-arrow" id="level-down" aria-label="Previous level">◀</button>
+            <span class="level-select-display" id="start-level-display">1</span>
+            <button type="button" class="level-arrow" id="level-up" aria-label="Next level">▶</button>
+          </div>
+        </div>
+        <div class="best-score hidden" id="best-score-start">Best: Level <span id="best-level-start">0</span> — <span id="best-friends-start">0</span> friends</div>
+        <button type="button" id="start-btn" class="start-btn">Start game</button>
+      </div>
+    </div>
+
+    <div id="controls-hint" class="controls-hint hidden">
+      <span class="controls-label">Move:</span>
+      <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd>
+    </div>
+
+    <div id="meet-toast" class="meet-toast hidden" aria-live="polite">
+      <p class="meet-toast-message" id="meet-toast-message"></p>
+    </div>
+
+    <div id="level-complete" class="level-complete hidden" role="dialog" aria-live="polite">
+      <div class="level-complete-inner">
+        <h2 id="level-complete-title">Level 1 complete!</h2>
+        <div class="star-display" id="star-display">⭐⭐⭐</div>
+        <p class="level-complete-sub" id="level-complete-sub">Get ready for Level 2...</p>
+        <button type="button" id="next-level-btn" class="start-btn">Next level</button>
+      </div>
+    </div>
+
+    <div id="level-transition" class="level-transition hidden" aria-hidden="true"></div>
+
+    <canvas id="minimap" class="minimap" width="150" height="50"></canvas>
+
+    <div id="game-over" class="game-over hidden" role="dialog" aria-live="polite">
+      <div class="game-over-inner">
+        <h2>Time's up!</h2>
+        <p class="game-over-stats">You reached <strong>Level <span id="final-level">1</span></strong> and saved <strong><span id="final-count">0</span></strong> friends.</p>
+        <p class="best-score" id="best-score-end">Best: Level <span id="best-level-end">0</span> — <span id="best-friends-end">0</span> friends</p>
+        <button type="button" id="continue-btn" class="start-btn continue-btn">Continue from Level <span id="continue-level">1</span></button>
+        <button type="button" id="play-again">Play again</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function() {
+    window.__TURTLE_GAME_START = false;
+    window.__GAME_CHAR = '🐢';
+    window.__GAME_CHAR_NAME = 'Turtle';
+    window.__START_LEVEL = 1;
+
+    var options = document.querySelectorAll('.char-option');
+    options.forEach(function(opt) {
+      opt.addEventListener('click', function() {
+        if (opt.classList.contains('locked')) return;
+        options.forEach(function(o) { o.classList.remove('selected'); });
+        opt.classList.add('selected');
+        window.__GAME_CHAR = opt.getAttribute('data-char');
+        window.__GAME_CHAR_NAME = opt.getAttribute('data-name');
+      });
+    });
+
+    var maxUnlocked = 1;
+    try {
+      var best = JSON.parse(localStorage.getItem('oceanBest'));
+      if (best && best.level > 0) maxUnlocked = best.level + 1;
+    } catch(e) {}
+    window.__MAX_UNLOCKED_LEVEL = maxUnlocked;
+
+    var display = document.getElementById('start-level-display');
+    var picker = document.getElementById('level-picker');
+    var downBtn = document.getElementById('level-down');
+    var upBtn = document.getElementById('level-up');
+
+    function updateLevelDisplay() {
+      if (display) display.textContent = window.__START_LEVEL;
+    }
+
+    if (maxUnlocked > 1 && picker) {
+      picker.classList.remove('hidden');
+    }
+
+    if (downBtn) downBtn.addEventListener('click', function() {
+      if (window.__START_LEVEL > 1) { window.__START_LEVEL--; updateLevelDisplay(); }
+    });
+    if (upBtn) upBtn.addEventListener('click', function() {
+      if (window.__START_LEVEL < window.__MAX_UNLOCKED_LEVEL) { window.__START_LEVEL++; updateLevelDisplay(); }
+    });
+
+    function onStartClick() {
+      var name = window.__GAME_CHAR_NAME || 'Turtle';
+      var screen = document.getElementById('start-screen');
+      if (screen) screen.style.display = 'none';
+      var hint = document.getElementById('controls-hint');
+      if (hint) hint.classList.remove('hidden');
+      var world = document.getElementById('game-world');
+      if (world) world.focus();
+      var emoji = document.querySelector('.mermaid-emoji.player-emoji');
+      if (emoji) emoji.textContent = window.__GAME_CHAR;
+      var title = document.getElementById('game-title');
+      if (title) title.textContent = name + "'s Ocean";
+      var sub = document.getElementById('game-subtitle');
+      if (sub) sub.textContent = 'Swim through the maze as a ' + name.toLowerCase() + ' — save your friends!';
+      window.__TURTLE_GAME_START = true;
+      if (typeof window.__startTurtleGame === 'function') window.__startTurtleGame();
+    }
+    var btn = document.getElementById('start-btn');
+    if (btn) {
+      btn.addEventListener('click', onStartClick);
+      btn.addEventListener('touchend', function(e) { e.preventDefault(); onStartClick(); }, { passive: false });
+    }
+  })();
+  </script>
+  <script src="sounds.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
