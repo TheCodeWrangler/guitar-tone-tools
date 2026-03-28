@@ -192,9 +192,11 @@ btnRecord.addEventListener('click', async () => {
       showDetectedNote(currentAnalysis);
       btnAnalyze.classList.remove('hidden');
       recStatus.textContent = `Recorded ${currentAnalysis.duration}s — select what you played, name your guitar, and click Save & Score.`;
+      setTimeout(() => recStatus.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
     } catch (err) {
       recStatus.textContent = `Error processing recording: ${err.message}`;
       console.error(err);
+      recStatus.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   } else {
     try {
@@ -238,20 +240,39 @@ fileInput.addEventListener('change', async () => {
 });
 
 btnAnalyze.addEventListener('click', () => {
-  const name = inputName.value.trim();
-  if (!name) { recStatus.textContent = 'Please enter a guitar name.'; return; }
-  if (!chordSelect.value) { recStatus.textContent = 'Please select what you played (chord or note).'; return; }
-  if (!currentAnalysis) return;
+  try {
+    const name = inputName.value.trim();
+    if (!name) {
+      recStatus.textContent = 'Please enter a guitar name.';
+      recStatus.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    if (!chordSelect.value) {
+      recStatus.textContent = 'Please select what you played (chord or note).';
+      recStatus.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    if (!currentAnalysis) {
+      recStatus.textContent = 'No audio to analyze. Please record or upload first.';
+      recStatus.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
 
-  currentAnalysis.name = name;
-  const chord = chordSelect.value;
+    currentAnalysis.name = name;
+    const chord = chordSelect.value;
 
-  const id = Date.now().toString(36);
-  guitars.push({ id, name, chord, analysis: currentAnalysis });
-  saveGuitars();
+    const id = Date.now().toString(36);
+    guitars.push({ id, name, chord, analysis: currentAnalysis });
+    try { saveGuitars(); } catch (e) { console.warn('localStorage save failed:', e); }
 
-  renderSingleAnalysis(currentAnalysis);
-  recStatus.textContent = `"${name}" (${chord}) saved with a score of ${currentAnalysis.scores.overall}/100! Compare it on the Compare page.`;
+    renderSingleAnalysis(currentAnalysis);
+    recStatus.textContent = `"${name}" (${chord}) saved with a score of ${currentAnalysis.scores.overall}/100! Compare it on the Compare page.`;
+    setTimeout(() => analysisOut.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+  } catch (err) {
+    recStatus.textContent = `Error saving: ${err.message}`;
+    console.error(err);
+    recStatus.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
 });
 
 // ── Score rendering ────────────────────────────────────────────────────
