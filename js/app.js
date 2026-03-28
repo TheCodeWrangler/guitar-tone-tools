@@ -1509,6 +1509,8 @@ function renderLibrary() {
           <h3>${p.name} <span class="library-badge profile-badge">Profile</span></h3>
           <div>
             <span class="library-score" style="color:${scoreColor}">${score}/100</span>
+            <button class="btn small primary" data-action="share-profile" data-id="${p.id}">Send</button>
+            <button class="btn small" data-action="export-profile-json" data-id="${p.id}">Export</button>
             <button class="btn small" data-action="view-profile" data-id="${p.id}">View</button>
             <button class="btn small danger" data-action="delete-profile" data-id="${p.id}">Delete</button>
           </div>
@@ -1584,6 +1586,12 @@ $('#library-content').addEventListener('click', (e) => {
       renderSingleAnalysisInto(g.analysis, detail, g.name, g.chord);
       detail.dataset.rendered = 'true';
     }
+  } else if (action === 'share-profile') {
+    const p = profiles.find(p => p.id === id);
+    if (p) shareProfile(p.profile, p.name);
+  } else if (action === 'export-profile-json') {
+    const p = profiles.find(p => p.id === id);
+    if (p) downloadProfileJson(p.profile, p.name);
   } else if (action === 'delete-profile') {
     profiles = profiles.filter(p => p.id !== id);
     saveProfiles();
