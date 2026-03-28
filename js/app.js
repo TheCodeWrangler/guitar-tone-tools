@@ -58,14 +58,24 @@ function saveProfiles() {
 }
 
 function serialiseAnalysis(a) {
+  if (!a || !a.fft) return a;
+
+  // Cap stored FFT to 5kHz range to save space (especially for profiles with 10 recordings)
+  let freqs = a.fft.frequencies;
+  let mags = a.fft.magnitudes;
+  let maxIdx = freqs.length;
+  for (let i = 0; i < freqs.length; i++) {
+    if (freqs[i] > 6000) { maxIdx = i; break; }
+  }
+
   return {
     ...a,
     fft: {
-      frequencies: Array.from(a.fft.frequencies),
-      magnitudes: Array.from(a.fft.magnitudes),
+      frequencies: Array.from(freqs.slice(0, maxIdx)),
+      magnitudes: Array.from(mags.slice(0, maxIdx)),
     },
     waveform: {
-      samples: Array.from(a.waveform.samples),
+      samples: Array.from(a.waveform.samples.slice(0, 10000)),
       sr: a.waveform.sr,
     },
     damping: {
@@ -454,6 +464,7 @@ function renderWizardStep() {
     profileCurrentStep++;
     if (profileCurrentStep < total) {
       renderWizardStep();
+      setTimeout(() => wizardContent.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
     } else {
       finishProfile();
     }
@@ -478,26 +489,49 @@ function renderWizardNoteDetection(analysis, step, container) {
 }
 
 function finishProfile() {
-  const name = profileNameInput.value.trim();
-  const profile = computeProfile(profileStepResults);
+  try {
+    const name = profileNameInput.value.trim();
 
-  const entry = {
-    id: Date.now().toString(36),
-    name,
-    timestamp: new Date().toISOString(),
-    profile,
-  };
-  profiles.push(entry);
-  saveProfiles();
+    // Compact step results — ensure no sparse slots
+    const compactResults = profileStepResults.filter(Boolean);
+    if (compactResults.length === 0) {
+      wizardContent.innerHTML = '<p class="compare-warn">No recordings found. Please try again.</p>';
+      return;
+    }
 
-  wizardContent.classList.add('hidden');
-  wizardContent.innerHTML = '';
-  profileReport.classList.remove('hidden');
-  renderProfileReport(profile, name, profileReport);
+    const profile = computeProfile(compactResults);
 
-  btnStartProfile.disabled = false;
-  profileNameInput.disabled = false;
-  btnStartProfile.textContent = 'Start New Profile';
+    const entry = {
+      id: Date.now().toString(36),
+      name,
+      timestamp: new Date().toISOString(),
+      profile,
+    };
+    profiles.push(entry);
+
+    try {
+      saveProfiles();
+    } catch (storageErr) {
+      console.warn('Could not save to localStorage:', storageErr);
+    }
+
+    wizardContent.classList.add('hidden');
+    wizardContent.innerHTML = '';
+    profileReport.classList.remove('hidden');
+    renderProfileReport(profile, name, profileReport);
+
+    btnStartProfile.disabled = false;
+    profileNameInput.disabled = false;
+    btnStartProfile.textContent = 'Start New Profile';
+
+    // Scroll report into view (critical on mobile)
+    setTimeout(() => profileReport.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+  } catch (err) {
+    console.error('Profile generation failed:', err);
+    wizardContent.innerHTML = `<div class="compare-warn">Error generating report: ${err.message}. Check console for details.</div>`;
+    btnStartProfile.disabled = false;
+    profileNameInput.disabled = false;
+  }
 }
 
 // ── Profile Report ─────────────────────────────────────────────────────
