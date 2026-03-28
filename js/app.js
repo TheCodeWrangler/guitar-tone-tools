@@ -639,15 +639,30 @@ function renderProfileReport(profile, name, container) {
 
   // Export buttons
   html += `<div class="export-buttons">
-    <button class="btn primary" id="btn-export-html">Download Report (HTML)</button>
+    <button class="btn primary" id="btn-share-profile">Send to a Friend</button>
+    <button class="btn" id="btn-export-json">Export Data (.json)</button>
+    <button class="btn" id="btn-export-html">Download Report (HTML)</button>
     <button class="btn" id="btn-export-text">Copy Summary to Clipboard</button>
   </div>`;
 
   container.innerHTML = html;
 
   // Wire export buttons
+  const btnShare = container.querySelector('#btn-share-profile');
+  const btnExportJson = container.querySelector('#btn-export-json');
   const btnExportHtml = container.querySelector('#btn-export-html');
   const btnExportText = container.querySelector('#btn-export-text');
+
+  if (btnShare) {
+    btnShare.addEventListener('click', () => {
+      shareProfile(profile, name);
+    });
+  }
+  if (btnExportJson) {
+    btnExportJson.addEventListener('click', () => {
+      downloadProfileJson(profile, name);
+    });
+  }
   if (btnExportHtml) {
     btnExportHtml.addEventListener('click', () => {
       downloadHtmlReport(profile, name);
@@ -655,24 +670,7 @@ function renderProfileReport(profile, name, container) {
   }
   if (btnExportText) {
     btnExportText.addEventListener('click', () => {
-      const text = generateTextSummary(profile, name);
-      navigator.clipboard.writeText(text).then(() => {
-        btnExportText.textContent = 'Copied!';
-        setTimeout(() => { btnExportText.textContent = 'Copy Summary to Clipboard'; }, 2000);
-      }).catch(() => {
-        // Fallback for mobile: create a textarea and select
-        const ta = document.createElement('textarea');
-        ta.value = text;
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.focus();
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-        btnExportText.textContent = 'Copied!';
-        setTimeout(() => { btnExportText.textContent = 'Copy Summary to Clipboard'; }, 2000);
-      });
+      copyToClipboard(generateTextSummary(profile, name), btnExportText, 'Copy Summary to Clipboard');
     });
   }
 
@@ -697,6 +695,130 @@ function renderProfileReport(profile, name, container) {
       }
     });
   });
+}
+
+// ── Clipboard helper ──────────────────────────────────────────────────
+
+function copyToClipboard(text, btn, resetLabel) {
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = resetLabel; }, 2000);
+  }).catch(() => {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = resetLabel; }, 2000);
+  });
+}
+
+// ── Profile JSON Export / Import ──────────────────────────────────────
+
+function buildExportPayload(profile, name) {
+  return {
+    _format: 'guitar-tone-tools-profile',
+    _version: 1,
+    name,
+    exportedAt: new Date().toISOString(),
+    profile: serialiseProfile(profile),
+  };
+}
+
+function downloadProfileJson(profile, name) {
+  const payload = buildExportPayload(profile, name);
+  const json = JSON.stringify(payload, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `guitar-profile-${name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function importProfileFromFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const data = JSON.parse(reader.result);
+        if (data._format !== 'guitar-tone-tools-profile' || !data.profile || !data.name) {
+          reject(new Error('This file is not a valid Guitar Tone Tools profile.'));
+          return;
+        }
+        const prof = data.profile;
+        if (prof.stepResults) {
+          prof.stepResults = prof.stepResults.map(r => ({
+            stepId: r.stepId,
+            analysis: hydrateAnalysis(r.analysis),
+          }));
+        }
+        const entry = {
+          id: Date.now().toString(36),
+          name: data.name,
+          timestamp: data.exportedAt || new Date().toISOString(),
+          profile: prof,
+        };
+        profiles.push(entry);
+        try { saveProfiles(); } catch (e) { console.warn('localStorage save failed:', e); }
+        resolve(entry);
+      } catch (e) {
+        reject(new Error('Could not read profile file: ' + e.message));
+      }
+    };
+    reader.onerror = () => reject(new Error('Failed to read file.'));
+    reader.readAsText(file);
+  });
+}
+
+// ── Share (Web Share API + mailto fallback) ───────────────────────────
+
+async function shareProfile(profile, name) {
+  const textSummary = generateTextSummary(profile, name);
+  const payload = buildExportPayload(profile, name);
+  const jsonStr = JSON.stringify(payload, null, 2);
+  const fileName = `guitar-profile-${name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.json`;
+  const jsonFile = new File([jsonStr], fileName, { type: 'application/json' });
+
+  if (navigator.canShare && navigator.canShare({ files: [jsonFile] })) {
+    try {
+      await navigator.share({
+        title: `Guitar Profile — ${name}`,
+        text: textSummary,
+        files: [jsonFile],
+      });
+      return;
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+    }
+  }
+
+  // Fallback: try share without file
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: `Guitar Profile — ${name}`,
+        text: textSummary + `\n\n(Ask them to export the .json file from the app for a full import)`,
+      });
+      return;
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+    }
+  }
+
+  // Final fallback: mailto
+  const subject = encodeURIComponent(`Guitar Profile — ${name}`);
+  const body = encodeURIComponent(textSummary + '\n\n(The .json data file is attached — import it at https://thecodewrangler.github.io/guitar-tone-tools/)');
+  downloadProfileJson(profile, name);
+  window.location.href = `mailto:?subject=${subject}&body=${body}`;
 }
 
 // ── Report Export ──────────────────────────────────────────────────────
@@ -1326,8 +1448,42 @@ function renderLibrary() {
   const container = $('#library-content');
   container.innerHTML = '';
 
+  // Import bar (always visible)
+  const importBar = document.createElement('div');
+  importBar.className = 'import-bar';
+  importBar.innerHTML = `
+    <button class="btn" id="btn-import-profile">Import a Friend's Profile (.json)</button>
+    <input type="file" id="import-profile-input" accept=".json" class="hidden" />
+    <span id="import-status"></span>`;
+  container.appendChild(importBar);
+
+  const btnImport = importBar.querySelector('#btn-import-profile');
+  const fileInput = importBar.querySelector('#import-profile-input');
+  const importStatus = importBar.querySelector('#import-status');
+
+  btnImport.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    importStatus.textContent = 'Importing…';
+    importStatus.style.color = '';
+    try {
+      const entry = await importProfileFromFile(file);
+      importStatus.textContent = `Imported "${entry.name}" — ${entry.profile.overall.overall}/100!`;
+      importStatus.style.color = 'var(--green)';
+      renderLibrary();
+    } catch (err) {
+      importStatus.textContent = err.message;
+      importStatus.style.color = 'var(--danger)';
+    }
+    fileInput.value = '';
+  });
+
   if (guitars.length === 0 && profiles.length === 0) {
-    container.innerHTML = '<p class="hint">No saved recordings or profiles yet. Record from Quick Analyze or build a Profile.</p>';
+    const hint = document.createElement('p');
+    hint.className = 'hint';
+    hint.textContent = 'No saved recordings or profiles yet. Record from Quick Analyze or build a Profile, or import a friend\'s profile above.';
+    container.appendChild(hint);
     return;
   }
 
