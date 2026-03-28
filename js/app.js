@@ -11,11 +11,15 @@ import {
   drawWaveform, drawFFT, drawBinPowers, drawDamping,
   drawFFTOverlay, drawBinPowerCompare, drawMirrorFFT,
 } from './charts.js';
+import { PROFILE_STEPS, STRING_CATEGORIES, computeProfile } from './profile.js';
 
 // ── State ──────────────────────────────────────────────────────────────
 
 const STORAGE_KEY = 'gtt_guitars';
+const PROFILE_STORAGE_KEY = 'gtt_profiles';
+
 let guitars = loadGuitars();
+let profiles = loadProfiles();
 let currentAnalysis = null;
 let currentBlob = null;
 
@@ -31,40 +35,82 @@ function saveGuitars() {
     id: g.id,
     name: g.name,
     chord: g.chord || '',
-    analysis: {
-      ...g.analysis,
-      fft: {
-        frequencies: Array.from(g.analysis.fft.frequencies),
-        magnitudes: Array.from(g.analysis.fft.magnitudes),
-      },
-      waveform: {
-        samples: Array.from(g.analysis.waveform.samples),
-        sr: g.analysis.waveform.sr,
-      },
-      damping: {
-        envelope: Array.from(g.analysis.damping.envelope),
-        times: Array.from(g.analysis.damping.times),
-      },
-    },
+    analysis: serialiseAnalysis(g.analysis),
   }));
   localStorage.setItem(STORAGE_KEY, JSON.stringify(serialisable));
 }
 
+function loadProfiles() {
+  try {
+    const raw = localStorage.getItem(PROFILE_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
+function saveProfiles() {
+  const serialisable = profiles.map(p => ({
+    id: p.id,
+    name: p.name,
+    timestamp: p.timestamp,
+    profile: serialiseProfile(p.profile),
+  }));
+  localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(serialisable));
+}
+
+function serialiseAnalysis(a) {
+  return {
+    ...a,
+    fft: {
+      frequencies: Array.from(a.fft.frequencies),
+      magnitudes: Array.from(a.fft.magnitudes),
+    },
+    waveform: {
+      samples: Array.from(a.waveform.samples),
+      sr: a.waveform.sr,
+    },
+    damping: {
+      envelope: Array.from(a.damping.envelope),
+      times: Array.from(a.damping.times),
+    },
+  };
+}
+
+function serialiseProfile(prof) {
+  return {
+    ...prof,
+    stepResults: prof.stepResults.map(r => ({
+      stepId: r.stepId,
+      analysis: serialiseAnalysis(r.analysis),
+    })),
+  };
+}
+
+function hydrateAnalysis(a) {
+  if (!a || !a.fft) return a;
+  a.fft.frequencies = new Float32Array(a.fft.frequencies);
+  a.fft.magnitudes = new Float32Array(a.fft.magnitudes);
+  a.waveform.samples = new Float32Array(a.waveform.samples);
+  if (!a.scores) a.scores = computeScores(a);
+  if (!a.detectedNote) a.detectedNote = hzToNote(a.fundamental);
+  return a;
+}
+
 guitars = guitars.map(g => {
   if (g.analysis && g.analysis.fft) {
-    g.analysis.fft.frequencies = new Float32Array(g.analysis.fft.frequencies);
-    g.analysis.fft.magnitudes  = new Float32Array(g.analysis.fft.magnitudes);
-    g.analysis.waveform.samples = new Float32Array(g.analysis.waveform.samples);
-    // Backfill scores for old entries
-    if (!g.analysis.scores) {
-      g.analysis.scores = computeScores(g.analysis);
-    }
-    if (!g.analysis.detectedNote) {
-      g.analysis.detectedNote = hzToNote(g.analysis.fundamental);
-    }
+    g.analysis = hydrateAnalysis(g.analysis);
     if (!g.chord) g.chord = '';
   }
   return g;
+});
+
+profiles = profiles.map(p => {
+  if (p.profile && p.profile.stepResults) {
+    p.profile.stepResults = p.profile.stepResults.map(r => ({
+      stepId: r.stepId,
+      analysis: hydrateAnalysis(r.analysis),
+    }));
+  }
+  return p;
 });
 
 // ── DOM references ─────────────────────────────────────────────────────
@@ -236,14 +282,12 @@ function renderScoreCard(scores) {
 function renderSingleAnalysis(a) {
   analysisOut.innerHTML = '';
 
-  // Score card
   if (a.scores) {
     const scoreSection = document.createElement('div');
     scoreSection.innerHTML = `<h2 class="section-title">Tone Quality Score</h2>` + renderScoreCard(a.scores);
     analysisOut.appendChild(scoreSection);
   }
 
-  // Detected note
   if (a.detectedNote) {
     const noteDiv = document.createElement('div');
     noteDiv.className = 'metrics-grid';
@@ -256,7 +300,6 @@ function renderSingleAnalysis(a) {
     analysisOut.appendChild(noteDiv);
   }
 
-  // Bin powers
   const binRow = document.createElement('div');
   binRow.className = 'metrics-grid bins';
   for (const [b, v] of Object.entries(a.binPowers)) {
@@ -264,7 +307,6 @@ function renderSingleAnalysis(a) {
   }
   analysisOut.appendChild(binRow);
 
-  // Charts
   const charts = [
     (c) => drawWaveform(c, a.waveform.samples, a.waveform.sr, `${a.name} — Waveform`),
     (c) => drawFFT(c, a.fft.frequencies, a.fft.magnitudes, `${a.name} — Frequency Spectrum`),
@@ -280,18 +322,350 @@ function renderSingleAnalysis(a) {
   }
 }
 
+// ── Profile Wizard ─────────────────────────────────────────────────────
+
+const profileNameInput = $('#profile-guitar-name');
+const btnStartProfile  = $('#btn-start-profile');
+const wizardContent    = $('#wizard-content');
+const profileReport    = $('#profile-report');
+
+let profileStepResults = [];
+let profileCurrentStep = 0;
+let profileRecordingBlob = null;
+
+btnStartProfile.addEventListener('click', () => {
+  const name = profileNameInput.value.trim();
+  if (!name) {
+    profileNameInput.focus();
+    profileNameInput.classList.add('shake');
+    setTimeout(() => profileNameInput.classList.remove('shake'), 500);
+    return;
+  }
+  profileStepResults = [];
+  profileCurrentStep = 0;
+  profileRecordingBlob = null;
+  profileReport.classList.add('hidden');
+  profileReport.innerHTML = '';
+  wizardContent.classList.remove('hidden');
+  btnStartProfile.disabled = true;
+  profileNameInput.disabled = true;
+  renderWizardStep();
+});
+
+function renderWizardStep() {
+  const step = PROFILE_STEPS[profileCurrentStep];
+  const total = PROFILE_STEPS.length;
+  const pct = ((profileCurrentStep) / total) * 100;
+
+  wizardContent.innerHTML = `
+    <div class="wizard-progress">
+      <div class="wizard-progress-bar">
+        <div class="wizard-progress-fill" style="width:${pct}%"></div>
+      </div>
+      <div class="wizard-progress-text">Step ${profileCurrentStep + 1} of ${total}</div>
+    </div>
+    <div class="wizard-step">
+      <h3 class="wizard-step-label">${step.label}</h3>
+      <p class="wizard-step-instruction">${step.instruction}</p>
+      <div class="wizard-step-controls">
+        <button id="wiz-record" class="btn primary">Record</button>
+        <button id="wiz-rerecord" class="btn hidden">Re-record</button>
+      </div>
+      <div id="wiz-status" class="wizard-status"></div>
+      <div id="wiz-note" class="hidden"></div>
+      <audio id="wiz-audio" controls class="hidden"></audio>
+      <div class="wizard-nav">
+        <button id="wiz-next" class="btn primary" disabled>
+          ${profileCurrentStep < total - 1 ? 'Next Step →' : 'Finish & Generate Report'}
+        </button>
+      </div>
+    </div>
+  `;
+
+  const wizRecord   = $('#wiz-record');
+  const wizRerecord = $('#wiz-rerecord');
+  const wizStatus   = $('#wiz-status');
+  const wizNote     = $('#wiz-note');
+  const wizAudio    = $('#wiz-audio');
+  const wizNext     = $('#wiz-next');
+
+  let stepAnalysis = null;
+
+  async function doRecord() {
+    if (isRecording()) {
+      wizRecord.textContent = 'Record';
+      wizRecord.classList.remove('recording');
+      wizStatus.textContent = 'Processing audio...';
+      try {
+        const { audioBuffer, blob } = await stopRecording();
+        profileRecordingBlob = blob;
+        wizAudio.src = URL.createObjectURL(blob);
+        wizAudio.classList.remove('hidden');
+        await new Promise(r => setTimeout(r, 50));
+        wizStatus.textContent = 'Analyzing tone...';
+        await new Promise(r => setTimeout(r, 50));
+        stepAnalysis = analyzeAudio(audioBuffer);
+        stepAnalysis.detectedNote = hzToNote(stepAnalysis.fundamental);
+        stepAnalysis.scores = computeScores(stepAnalysis);
+        stepAnalysis.name = `${profileNameInput.value.trim()} — ${step.label}`;
+
+        renderWizardNoteDetection(stepAnalysis, step, wizNote);
+        wizRerecord.classList.remove('hidden');
+        wizNext.disabled = false;
+        wizStatus.textContent = `Recorded ${stepAnalysis.duration}s — review and continue.`;
+      } catch (err) {
+        wizStatus.textContent = `Error: ${err.message}`;
+        console.error(err);
+      }
+    } else {
+      try {
+        await startRecording();
+        wizRecord.textContent = 'Stop';
+        wizRecord.classList.add('recording');
+        wizStatus.textContent = 'Recording... play and click Stop when done.';
+        wizAudio.classList.add('hidden');
+        wizNote.classList.add('hidden');
+        wizNext.disabled = true;
+        wizRerecord.classList.add('hidden');
+      } catch (err) {
+        wizStatus.textContent = 'Microphone access denied. Please allow mic access.';
+      }
+    }
+  }
+
+  wizRecord.addEventListener('click', doRecord);
+  wizRerecord.addEventListener('click', () => {
+    stepAnalysis = null;
+    wizNext.disabled = true;
+    wizNote.classList.add('hidden');
+    wizAudio.classList.add('hidden');
+    wizRerecord.classList.add('hidden');
+    wizRecord.textContent = 'Record';
+    wizStatus.textContent = '';
+    doRecord();
+  });
+
+  wizNext.addEventListener('click', () => {
+    if (!stepAnalysis) return;
+    profileStepResults[profileCurrentStep] = {
+      stepId: step.id,
+      analysis: stepAnalysis,
+    };
+    profileCurrentStep++;
+    if (profileCurrentStep < total) {
+      renderWizardStep();
+    } else {
+      finishProfile();
+    }
+  });
+}
+
+function renderWizardNoteDetection(analysis, step, container) {
+  const note = analysis.detectedNote;
+  const expectedNote = hzToNote(step.hz);
+
+  container.classList.remove('hidden');
+  let html = `<span class="note-badge">Detected: <strong>${note.name}</strong> (${analysis.fundamental} Hz`;
+  if (note.cents !== 0) html += `, ${note.cents > 0 ? '+' : ''}${note.cents} cents`;
+  html += `)</span>`;
+
+  if (note.note === expectedNote.note && Math.abs(note.octave - expectedNote.octave) <= 1) {
+    html += `<span class="note-match good">Matches expected ${expectedNote.name}</span>`;
+  } else {
+    html += `<span class="note-match warn">Expected ${expectedNote.name} — detected ${note.name}. Consider re-recording.</span>`;
+  }
+  container.innerHTML = html;
+}
+
+function finishProfile() {
+  const name = profileNameInput.value.trim();
+  const profile = computeProfile(profileStepResults);
+
+  const entry = {
+    id: Date.now().toString(36),
+    name,
+    timestamp: new Date().toISOString(),
+    profile,
+  };
+  profiles.push(entry);
+  saveProfiles();
+
+  wizardContent.classList.add('hidden');
+  wizardContent.innerHTML = '';
+  profileReport.classList.remove('hidden');
+  renderProfileReport(profile, name, profileReport);
+
+  btnStartProfile.disabled = false;
+  profileNameInput.disabled = false;
+  btnStartProfile.textContent = 'Start New Profile';
+}
+
+// ── Profile Report ─────────────────────────────────────────────────────
+
+function renderProfileReport(profile, name, container) {
+  const { overall, stringScores, chordScores, categoryScores, strengths, weaknesses, stepResults } = profile;
+  const grade = scoreGrade(overall.overall);
+  const overallColor = overall.overall >= 75 ? 'var(--green)' : overall.overall >= 50 ? 'var(--amber)' : 'var(--danger)';
+
+  let html = `<h2 class="section-title">Profile Report — ${name}</h2>`;
+
+  // Overall composite
+  html += `<div class="score-card">
+    <div class="score-overall">
+      <div class="score-overall-number" style="color:${overallColor}">${overall.overall}</div>
+      <div class="score-overall-label">${grade}</div>
+    </div>
+    <div class="score-details">`;
+  for (const [key, label] of Object.entries(SCORE_LABELS)) {
+    if (key === 'overall') continue;
+    html += renderScoreGauge(overall[key], label, SCORE_DESCRIPTIONS[key]);
+  }
+  html += `</div></div>`;
+
+  // Strengths & weaknesses
+  if (strengths.length > 0 || weaknesses.length > 0) {
+    html += `<div class="profile-callouts">`;
+    if (strengths.length > 0) {
+      html += `<div class="profile-callout strength">
+        <h4>Strengths</h4>
+        <ul>${strengths.map(s => `<li><strong>${SCORE_LABELS[s.dim]}</strong> — ${s.val}/100</li>`).join('')}</ul>
+      </div>`;
+    }
+    if (weaknesses.length > 0) {
+      html += `<div class="profile-callout weakness">
+        <h4>Areas for Improvement</h4>
+        <ul>${weaknesses.map(w => `<li><strong>${SCORE_LABELS[w.dim]}</strong> — ${w.val}/100</li>`).join('')}</ul>
+      </div>`;
+    }
+    html += `</div>`;
+  }
+
+  // Category breakdown
+  const catLabels = { bass: 'Bass Strings (E2, A2)', mid: 'Mid Strings (D3, G3)', treble: 'Treble Strings (B3, E4)' };
+  html += `<h3 class="subsection-title">String Category Breakdown</h3>`;
+  html += `<div class="profile-categories">`;
+  for (const [cat, label] of Object.entries(catLabels)) {
+    const scores = categoryScores[cat];
+    if (!scores) continue;
+    html += `<div class="profile-category-card">
+      <h4>${label}</h4>`;
+    html += renderScoreCard(scores);
+    html += `</div>`;
+  }
+  html += `</div>`;
+
+  // Chord performance
+  if (chordScores) {
+    html += `<h3 class="subsection-title">Chord Performance</h3>`;
+    html += renderScoreCard(chordScores);
+  }
+
+  // Individual step results (expandable)
+  html += `<h3 class="subsection-title">Individual Step Results</h3>`;
+  html += `<div class="profile-steps-list">`;
+  stepResults.forEach((r, i) => {
+    const step = PROFILE_STEPS.find(s => s.id === r.stepId);
+    const a = r.analysis;
+    const stepScore = a.scores ? a.scores.overall : '—';
+    const stepGrade = a.scores ? scoreGrade(a.scores.overall) : '';
+    const stepColor = (a.scores && a.scores.overall >= 75) ? 'var(--green)'
+      : (a.scores && a.scores.overall >= 50) ? 'var(--amber)' : 'var(--danger)';
+    html += `<div class="profile-step-item">
+      <div class="profile-step-header" data-toggle="profile-step-detail-${i}">
+        <span class="profile-step-num">${i + 1}</span>
+        <span class="profile-step-name">${step ? step.label : r.stepId}</span>
+        <span class="profile-step-score" style="color:${stepColor}">${stepScore}/100 ${stepGrade}</span>
+        <span class="profile-step-toggle">▸</span>
+      </div>
+      <div class="profile-step-detail hidden" id="profile-step-detail-${i}"></div>
+    </div>`;
+  });
+  html += `</div>`;
+
+  container.innerHTML = html;
+
+  // Wire up expand/collapse and render charts lazily
+  container.querySelectorAll('.profile-step-header').forEach(header => {
+    header.addEventListener('click', () => {
+      const targetId = header.dataset.toggle;
+      const detail = container.querySelector(`#${targetId}`);
+      const toggle = header.querySelector('.profile-step-toggle');
+      if (detail.classList.contains('hidden')) {
+        detail.classList.remove('hidden');
+        toggle.textContent = '▾';
+        if (!detail.dataset.rendered) {
+          const idx = parseInt(targetId.replace('profile-step-detail-', ''), 10);
+          const a = stepResults[idx].analysis;
+          renderSingleAnalysisInto(a, detail);
+          detail.dataset.rendered = 'true';
+        }
+      } else {
+        detail.classList.add('hidden');
+        toggle.textContent = '▸';
+      }
+    });
+  });
+}
+
 // ── Compare ────────────────────────────────────────────────────────────
 
 function renderCompare() {
   const container = $('#compare-content');
   container.innerHTML = '';
 
+  const hasRecordings = guitars.length >= 2;
+  const hasProfiles = profiles.length >= 2;
+  const hasAny = guitars.length + profiles.length >= 2;
+
+  if (!hasAny) {
+    container.innerHTML = `<p class="hint">Record or upload at least 2 guitars, or create at least 2 profiles, to start comparing.</p>`;
+    return;
+  }
+
+  // Mode tabs: Recordings | Profiles
+  const modeDiv = document.createElement('div');
+  modeDiv.className = 'compare-mode-tabs';
+  modeDiv.innerHTML = `
+    <button class="btn compare-mode-btn ${hasRecordings ? 'active' : ''}" data-mode="recordings" ${!hasRecordings ? 'disabled' : ''}>
+      Compare Recordings${guitars.length > 0 ? ` (${guitars.length})` : ''}
+    </button>
+    <button class="btn compare-mode-btn ${!hasRecordings && hasProfiles ? 'active' : ''}" data-mode="profiles" ${!hasProfiles ? 'disabled' : ''}>
+      Compare Profiles${profiles.length > 0 ? ` (${profiles.length})` : ''}
+    </button>
+  `;
+  container.appendChild(modeDiv);
+
+  const compareBody = document.createElement('div');
+  compareBody.id = 'compare-body';
+  container.appendChild(compareBody);
+
+  const defaultMode = hasRecordings ? 'recordings' : 'profiles';
+  renderCompareMode(defaultMode, compareBody);
+
+  modeDiv.querySelectorAll('.compare-mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      modeDiv.querySelectorAll('.compare-mode-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderCompareMode(btn.dataset.mode, compareBody);
+    });
+  });
+}
+
+function renderCompareMode(mode, container) {
+  container.innerHTML = '';
+  if (mode === 'recordings') {
+    renderRecordingCompare(container);
+  } else {
+    renderProfileCompare(container);
+  }
+}
+
+function renderRecordingCompare(container) {
   if (guitars.length < 2) {
     container.innerHTML = `<p class="hint">Record or upload at least 2 guitars to start comparing.</p>`;
     return;
   }
 
-  // Group by chord
   const chordGroups = {};
   for (const g of guitars) {
     const key = g.chord || 'Untagged';
@@ -299,7 +673,6 @@ function renderCompare() {
     chordGroups[key].push(g);
   }
 
-  // Chord filter
   const filterDiv = document.createElement('div');
   filterDiv.className = 'compare-filter';
   filterDiv.innerHTML = `<label class="compare-filter-label">Filter by chord/note:</label>`;
@@ -313,12 +686,10 @@ function renderCompare() {
   filterDiv.appendChild(filterSelect);
   container.appendChild(filterDiv);
 
-  // Warning area
   const warnDiv = document.createElement('div');
   warnDiv.id = 'compare-warning';
   container.appendChild(warnDiv);
 
-  // Checkboxes
   const form = document.createElement('div');
   form.className = 'compare-selector';
   form.id = 'compare-checkboxes';
@@ -366,8 +737,124 @@ function renderCompare() {
   renderCheckboxes(guitars);
 }
 
+function renderProfileCompare(container) {
+  if (profiles.length < 2) {
+    container.innerHTML = `<p class="hint">Create at least 2 guitar profiles to compare them.</p>`;
+    return;
+  }
+
+  const form = document.createElement('div');
+  form.className = 'compare-selector';
+  profiles.forEach(p => {
+    const label = document.createElement('label');
+    label.className = 'compare-check';
+    const score = p.profile.overall.overall;
+    label.innerHTML = `<input type="checkbox" value="${p.id}" checked> ${p.name} <small>(${score}/100)</small>`;
+    form.appendChild(label);
+  });
+  const btn = document.createElement('button');
+  btn.className = 'btn primary';
+  btn.textContent = 'Compare Selected';
+  form.appendChild(btn);
+  container.appendChild(form);
+
+  const output = document.createElement('div');
+  output.id = 'compare-profile-output';
+  container.appendChild(output);
+
+  function doCompare() {
+    const checked = [...form.querySelectorAll('input:checked')].map(i => i.value);
+    const selected = profiles.filter(p => checked.includes(p.id));
+    if (selected.length < 2) {
+      output.innerHTML = '<p class="hint">Select at least 2 profiles.</p>';
+      return;
+    }
+    renderProfileComparison(selected, output);
+  }
+
+  btn.addEventListener('click', doCompare);
+  doCompare();
+}
+
+function renderProfileComparison(selected, container) {
+  container.innerHTML = '';
+
+  const scoreKeys = Object.keys(SCORE_LABELS);
+  const table = document.createElement('table');
+  table.className = 'compare-table';
+
+  let thead = `<tr><th>Guitar</th>`;
+  for (const key of scoreKeys) thead += `<th>${SCORE_LABELS[key]}</th>`;
+  thead += `</tr>`;
+
+  const bests = {};
+  for (const key of scoreKeys) {
+    bests[key] = Math.max(...selected.map(p => p.profile.overall[key]));
+  }
+
+  let tbody = '';
+  for (const p of selected) {
+    tbody += `<tr><td><strong>${p.name}</strong></td>`;
+    for (const key of scoreKeys) {
+      const val = p.profile.overall[key];
+      const isBest = val === bests[key] && selected.length > 1;
+      const color = val >= 75 ? 'var(--green)' : val >= 50 ? 'var(--amber)' : 'var(--danger)';
+      tbody += `<td style="color:${color};${isBest ? 'font-weight:700' : ''}">${val}${isBest ? ' ★' : ''}</td>`;
+    }
+    tbody += `</tr>`;
+  }
+
+  table.innerHTML = `<thead>${thead}</thead><tbody>${tbody}</tbody>`;
+  container.appendChild(table);
+
+  // Category comparison
+  const cats = ['bass', 'mid', 'treble'];
+  const catLabels = { bass: 'Bass Strings', mid: 'Mid Strings', treble: 'Treble Strings' };
+  for (const cat of cats) {
+    const hasAll = selected.every(p => p.profile.categoryScores[cat]);
+    if (!hasAll) continue;
+    const h = document.createElement('h3');
+    h.className = 'subsection-title';
+    h.textContent = catLabels[cat];
+    container.appendChild(h);
+
+    const catTable = document.createElement('table');
+    catTable.className = 'compare-table';
+    let catThead = `<tr><th>Guitar</th>`;
+    for (const key of scoreKeys) catThead += `<th>${SCORE_LABELS[key]}</th>`;
+    catThead += `</tr>`;
+
+    let catTbody = '';
+    for (const p of selected) {
+      const sc = p.profile.categoryScores[cat];
+      catTbody += `<tr><td><strong>${p.name}</strong></td>`;
+      for (const key of scoreKeys) {
+        const val = sc[key] ?? '—';
+        const color = typeof val === 'number'
+          ? (val >= 75 ? 'var(--green)' : val >= 50 ? 'var(--amber)' : 'var(--danger)')
+          : '';
+        catTbody += `<td style="color:${color}">${val}</td>`;
+      }
+      catTbody += `</tr>`;
+    }
+    catTable.innerHTML = `<thead>${catThead}</thead><tbody>${catTbody}</tbody>`;
+    container.appendChild(catTable);
+  }
+
+  // Individual score cards
+  const h2 = document.createElement('h2');
+  h2.className = 'section-title';
+  h2.textContent = 'Individual Profile Breakdowns';
+  container.appendChild(h2);
+
+  for (const p of selected) {
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = `<h3 class="subsection-title">${p.name}</h3>` + renderScoreCard(p.profile.overall);
+    container.appendChild(wrapper);
+  }
+}
+
 function runComparison(selected, output, warnDiv) {
-  // Check for chord mismatch
   const chords = [...new Set(selected.map(g => g.chord || 'Untagged'))];
   if (chords.length > 1) {
     warnDiv.innerHTML = `<div class="compare-warn">
@@ -384,7 +871,6 @@ function runComparison(selected, output, warnDiv) {
 function renderComparison(analyses, container) {
   container.innerHTML = '';
 
-  // Score comparison table
   const hasScores = analyses.every(a => a.scores);
   if (hasScores) {
     const scoreKeys = Object.keys(SCORE_LABELS);
@@ -396,7 +882,6 @@ function renderComparison(analyses, container) {
     thead += `</tr>`;
 
     let tbody = '';
-    // Find best score in each column for highlighting
     const bests = {};
     for (const key of scoreKeys) {
       bests[key] = Math.max(...analyses.map(a => a.scores[key]));
@@ -417,7 +902,6 @@ function renderComparison(analyses, container) {
     container.appendChild(table);
   }
 
-  // Signal comparison table
   const sigTable = document.createElement('table');
   sigTable.className = 'compare-table';
   sigTable.innerHTML = `
@@ -440,7 +924,6 @@ function renderComparison(analyses, container) {
   `;
   container.appendChild(sigTable);
 
-  // Charts
   const chartDefs = [
     (c) => drawFFTOverlay(c, analyses),
     (c) => drawBinPowerCompare(c, analyses),
@@ -457,7 +940,6 @@ function renderComparison(analyses, container) {
     requestAnimationFrame(() => draw(canvas));
   }
 
-  // Individual score cards
   if (hasScores) {
     const h3 = document.createElement('h2');
     h3.className = 'section-title';
@@ -478,44 +960,94 @@ function renderLibrary() {
   const container = $('#library-content');
   container.innerHTML = '';
 
-  if (guitars.length === 0) {
-    container.innerHTML = '<p class="hint">No saved recordings yet. Record or upload from the Analyze page.</p>';
+  if (guitars.length === 0 && profiles.length === 0) {
+    container.innerHTML = '<p class="hint">No saved recordings or profiles yet. Record from Quick Analyze or build a Profile.</p>';
     return;
   }
 
-  guitars.forEach(g => {
-    const score = g.analysis.scores ? g.analysis.scores.overall : '—';
-    const grade = g.analysis.scores ? scoreGrade(g.analysis.scores.overall) : '';
-    const chordTag = g.chord ? g.chord : 'Untagged';
-    const card = document.createElement('div');
-    card.className = 'library-card';
-    card.innerHTML = `
-      <div class="library-card-header">
-        <h3>${g.name}</h3>
-        <div>
-          <span class="library-score">${score}/100</span>
-          <button class="btn small" data-action="view" data-id="${g.id}">View</button>
-          <button class="btn small danger" data-action="delete" data-id="${g.id}">Delete</button>
+  // Profiles section
+  if (profiles.length > 0) {
+    const profileHeader = document.createElement('h2');
+    profileHeader.className = 'section-title';
+    profileHeader.textContent = 'Guitar Profiles';
+    container.appendChild(profileHeader);
+
+    const profileList = document.createElement('div');
+    profileList.className = 'library-list';
+
+    profiles.forEach(p => {
+      const score = p.profile.overall.overall;
+      const grade = scoreGrade(score);
+      const scoreColor = score >= 75 ? 'var(--green)' : score >= 50 ? 'var(--amber)' : 'var(--danger)';
+      const dateStr = new Date(p.timestamp).toLocaleDateString();
+      const card = document.createElement('div');
+      card.className = 'library-card';
+      card.innerHTML = `
+        <div class="library-card-header">
+          <h3>${p.name} <span class="library-badge profile-badge">Profile</span></h3>
+          <div>
+            <span class="library-score" style="color:${scoreColor}">${score}/100</span>
+            <button class="btn small" data-action="view-profile" data-id="${p.id}">View</button>
+            <button class="btn small danger" data-action="delete-profile" data-id="${p.id}">Delete</button>
+          </div>
         </div>
-      </div>
-      <div class="library-card-meta">
-        ${chordTag} · ${g.analysis.detectedNote ? g.analysis.detectedNote.name : '—'} · 
-        ${g.analysis.fundamental} Hz · ${g.analysis.duration}s · ${grade}
-      </div>
-      <div class="library-card-detail hidden" id="detail-${g.id}"></div>
-    `;
-    container.appendChild(card);
-  });
+        <div class="library-card-meta">
+          ${grade} · ${dateStr} · 10 steps
+        </div>
+        <div class="library-card-detail hidden" id="profile-detail-${p.id}"></div>
+      `;
+      profileList.appendChild(card);
+    });
+    container.appendChild(profileList);
+  }
+
+  // Recordings section
+  if (guitars.length > 0) {
+    const recHeader = document.createElement('h2');
+    recHeader.className = 'section-title';
+    recHeader.textContent = 'Individual Recordings';
+    container.appendChild(recHeader);
+
+    const recList = document.createElement('div');
+    recList.className = 'library-list';
+
+    guitars.forEach(g => {
+      const score = g.analysis.scores ? g.analysis.scores.overall : '—';
+      const grade = g.analysis.scores ? scoreGrade(g.analysis.scores.overall) : '';
+      const chordTag = g.chord ? g.chord : 'Untagged';
+      const card = document.createElement('div');
+      card.className = 'library-card';
+      card.innerHTML = `
+        <div class="library-card-header">
+          <h3>${g.name}</h3>
+          <div>
+            <span class="library-score">${score}/100</span>
+            <button class="btn small" data-action="view" data-id="${g.id}">View</button>
+            <button class="btn small danger" data-action="delete" data-id="${g.id}">Delete</button>
+          </div>
+        </div>
+        <div class="library-card-meta">
+          ${chordTag} · ${g.analysis.detectedNote ? g.analysis.detectedNote.name : '—'} · 
+          ${g.analysis.fundamental} Hz · ${g.analysis.duration}s · ${grade}
+        </div>
+        <div class="library-card-detail hidden" id="detail-${g.id}"></div>
+      `;
+      recList.appendChild(card);
+    });
+    container.appendChild(recList);
+  }
 
   container.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-action]');
     if (!btn) return;
     const id = btn.dataset.id;
-    if (btn.dataset.action === 'delete') {
+    const action = btn.dataset.action;
+
+    if (action === 'delete') {
       guitars = guitars.filter(g => g.id !== id);
       saveGuitars();
       renderLibrary();
-    } else if (btn.dataset.action === 'view') {
+    } else if (action === 'view') {
       const detail = $(`#detail-${id}`);
       if (!detail.classList.contains('hidden')) {
         detail.classList.add('hidden');
@@ -523,9 +1055,25 @@ function renderLibrary() {
       }
       detail.classList.remove('hidden');
       const g = guitars.find(g => g.id === id);
-      if (g) {
-        detail.innerHTML = '';
+      if (g && !detail.dataset.rendered) {
         renderSingleAnalysisInto(g.analysis, detail);
+        detail.dataset.rendered = 'true';
+      }
+    } else if (action === 'delete-profile') {
+      profiles = profiles.filter(p => p.id !== id);
+      saveProfiles();
+      renderLibrary();
+    } else if (action === 'view-profile') {
+      const detail = $(`#profile-detail-${id}`);
+      if (!detail.classList.contains('hidden')) {
+        detail.classList.add('hidden');
+        return;
+      }
+      detail.classList.remove('hidden');
+      const p = profiles.find(p => p.id === id);
+      if (p && !detail.dataset.rendered) {
+        renderProfileReport(p.profile, p.name, detail);
+        detail.dataset.rendered = 'true';
       }
     }
   });

@@ -17,13 +17,30 @@
     </header>
 
     <nav>
-      <button class="nav-btn active" data-page="analyze">Analyze</button>
+      <button class="nav-btn active" data-page="profile">Profile</button>
+      <button class="nav-btn" data-page="analyze">Quick Analyze</button>
       <button class="nav-btn" data-page="compare">Compare</button>
       <button class="nav-btn" data-page="library">Library</button>
     </nav>
 
+    <!-- ─── Profile Wizard ─────────────────────────────────────── -->
+    <section id="page-profile" class="page active">
+      <div class="wizard-intro">
+        <h2>Build a Guitar Profile</h2>
+        <p>Record each open string and 4 chords to get a complete tone evaluation. Takes about 3 minutes.</p>
+      </div>
+      <div class="wizard-panel">
+        <div class="wizard-name-row">
+          <input type="text" id="profile-guitar-name" placeholder="Guitar name (e.g. Taylor 814ce)" />
+          <button id="btn-start-profile" class="btn primary">Start Profiling</button>
+        </div>
+      </div>
+      <div id="wizard-content" class="hidden"></div>
+      <div id="profile-report" class="hidden"></div>
+    </section>
+
     <!-- ─── Analyze ────────────────────────────────────────────── -->
-    <section id="page-analyze" class="page active">
+    <section id="page-analyze" class="page">
       <div class="record-panel">
         <div class="record-controls">
           <button id="btn-record" class="btn primary">Record</button>
