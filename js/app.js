@@ -91,14 +91,23 @@ btnRecord.addEventListener('click', async () => {
   if (isRecording()) {
     btnRecord.textContent = 'Record';
     btnRecord.classList.remove('recording');
-    recStatus.textContent = 'Processing...';
-    const { audioBuffer, blob } = await stopRecording();
-    currentAnalysis = analyzeAudio(audioBuffer);
-    currentBlob = blob;
-    audioPlayer.src = URL.createObjectURL(blob);
-    audioPlayer.classList.remove('hidden');
-    btnAnalyze.classList.remove('hidden');
-    recStatus.textContent = `Recorded ${currentAnalysis.duration}s — enter a name and click Analyze.`;
+    recStatus.textContent = 'Processing audio...';
+    try {
+      const { audioBuffer, blob } = await stopRecording();
+      currentBlob = blob;
+      audioPlayer.src = URL.createObjectURL(blob);
+      audioPlayer.classList.remove('hidden');
+      // Yield to let UI update before heavy analysis
+      await new Promise(r => setTimeout(r, 50));
+      recStatus.textContent = 'Analyzing tone...';
+      await new Promise(r => setTimeout(r, 50));
+      currentAnalysis = analyzeAudio(audioBuffer);
+      btnAnalyze.classList.remove('hidden');
+      recStatus.textContent = `Recorded ${currentAnalysis.duration}s — enter a name and click Analyze.`;
+    } catch (err) {
+      recStatus.textContent = `Error processing recording: ${err.message}`;
+      console.error(err);
+    }
   } else {
     try {
       await startRecording();
@@ -118,15 +127,22 @@ btnUpload.addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', async () => {
   const file = fileInput.files[0];
   if (!file) return;
-  recStatus.textContent = 'Loading file...';
-  const { audioBuffer, blob } = await loadAudioFile(file);
-  currentAnalysis = analyzeAudio(audioBuffer);
-  currentBlob = blob;
-  audioPlayer.src = URL.createObjectURL(blob);
-  audioPlayer.classList.remove('hidden');
-  btnAnalyze.classList.remove('hidden');
-  recStatus.textContent = `Loaded "${file.name}" (${currentAnalysis.duration}s) — enter a name and click Analyze.`;
-  if (!inputName.value) inputName.value = file.name.replace(/\.\w+$/, '');
+  try {
+    recStatus.textContent = 'Loading file...';
+    const { audioBuffer, blob } = await loadAudioFile(file);
+    currentBlob = blob;
+    audioPlayer.src = URL.createObjectURL(blob);
+    audioPlayer.classList.remove('hidden');
+    recStatus.textContent = 'Analyzing tone...';
+    await new Promise(r => setTimeout(r, 50));
+    currentAnalysis = analyzeAudio(audioBuffer);
+    btnAnalyze.classList.remove('hidden');
+    recStatus.textContent = `Loaded "${file.name}" (${currentAnalysis.duration}s) — enter a name and click Analyze.`;
+    if (!inputName.value) inputName.value = file.name.replace(/\.\w+$/, '');
+  } catch (err) {
+    recStatus.textContent = `Error loading file: ${err.message}`;
+    console.error(err);
+  }
 });
 
 btnAnalyze.addEventListener('click', () => {

@@ -12,6 +12,14 @@ const FREQ_BINS = {
   brillance:[10000, 20000],
 };
 
+function arrayMax(arr) {
+  let max = -Infinity;
+  for (let i = 0; i < arr.length; i++) {
+    if (arr[i] > max) max = arr[i];
+  }
+  return max;
+}
+
 // ── Utilities ──────────────────────────────────────────────────────────
 
 function hann(N) {
@@ -53,8 +61,7 @@ function computeFFT(samples, sampleRate) {
     frequencies[k] = k * freqStep;
   }
 
-  // Normalise
-  const maxMag = Math.max(...magnitudes) || 1;
+  const maxMag = arrayMax(magnitudes) || 1;
   for (let i = 0; i < halfN; i++) magnitudes[i] /= maxMag;
 
   return { frequencies, magnitudes };
@@ -121,7 +128,7 @@ function computeFFTFast(samples, sampleRate) {
     frequencies[k] = k * freqStep;
   }
 
-  const maxMag = Math.max(...magnitudes) || 1;
+  const maxMag = arrayMax(magnitudes) || 1;
   for (let i = 0; i < halfN; i++) magnitudes[i] /= maxMag;
 
   return { frequencies, magnitudes };
@@ -130,20 +137,36 @@ function computeFFTFast(samples, sampleRate) {
 // ── Core Analysis ──────────────────────────────────────────────────────
 
 function detectFundamental(samples, sampleRate) {
-  // Autocorrelation-based pitch detection
-  const N = samples.length;
-  const minPeriod = Math.floor(sampleRate / 1200); // up to 1200 Hz
-  const maxPeriod = Math.floor(sampleRate / 50);   // down to 50 Hz
+  // Autocorrelation on a short window (first 0.1s after onset) for speed
+  const maxSamples = Math.min(samples.length, Math.floor(sampleRate * 0.15));
+
+  // Find onset: first sample exceeding 10% of peak amplitude
+  const peak = arrayMax(samples.subarray(0, Math.min(samples.length, sampleRate)));
+  let onset = 0;
+  for (let i = 0; i < maxSamples; i++) {
+    if (Math.abs(samples[i]) > peak * 0.1) { onset = i; break; }
+  }
+
+  const windowSize = Math.min(Math.floor(sampleRate * 0.08), samples.length - onset);
+  const buf = samples.subarray(onset, onset + windowSize);
+  const N = buf.length;
+
+  const minPeriod = Math.floor(sampleRate / 1200);
+  const maxPeriod = Math.min(Math.floor(sampleRate / 50), Math.floor(N / 2));
   let bestCorr = -1;
   let bestPeriod = minPeriod;
 
-  for (let period = minPeriod; period < Math.min(maxPeriod, N / 2); period++) {
-    let corr = 0;
+  for (let period = minPeriod; period < maxPeriod; period++) {
+    let corr = 0, norm1 = 0, norm2 = 0;
     for (let i = 0; i < N - period; i++) {
-      corr += samples[i] * samples[i + period];
+      corr  += buf[i] * buf[i + period];
+      norm1 += buf[i] * buf[i];
+      norm2 += buf[i + period] * buf[i + period];
     }
-    if (corr > bestCorr) {
-      bestCorr = corr;
+    const normFactor = Math.sqrt(norm1 * norm2) || 1;
+    const normalized = corr / normFactor;
+    if (normalized > bestCorr) {
+      bestCorr = normalized;
       bestPeriod = period;
     }
   }
@@ -189,8 +212,10 @@ function computeDamping(samples, sampleRate) {
   }
 
   // Find peak and fit from there
-  const peakIdx = envelope.indexOf(Math.max(...envelope));
-  const peakVal = envelope[peakIdx];
+  let peakVal = 0, peakIdx = 0;
+  for (let i = 0; i < envelope.length; i++) {
+    if (envelope[i] > peakVal) { peakVal = envelope[i]; peakIdx = i; }
+  }
   if (peakVal === 0) return { dampingFactor: null, envelope, times };
 
   // Simple log-linear fit: ln(env) = ln(A) - factor*t
@@ -219,13 +244,24 @@ function computeDamping(samples, sampleRate) {
 // ── Public API ─────────────────────────────────────────────────────────
 
 export function analyzeAudio(audioBuffer) {
-  const samples = audioBuffer.getChannelData(0);
+  const raw = audioBuffer.getChannelData(0);
   const sr = audioBuffer.sampleRate;
+
+  // Downsample waveform for storage (keep full for analysis)
+  const maxStoredSamples = sr * 10; // cap at 10s
+  const samples = raw.length > maxStoredSamples ? raw.subarray(0, maxStoredSamples) : raw;
 
   const { frequencies, magnitudes } = computeFFTFast(samples, sr);
   const fundamental = Math.round(detectFundamental(samples, sr) * 100) / 100;
   const binPowers = computeBinPowers(frequencies, magnitudes);
   const { dampingFactor, envelope, times } = computeDamping(samples, sr);
+
+  // Thin the waveform for display/storage — keep at most 20k points
+  const displayStep = Math.max(1, Math.floor(samples.length / 20000));
+  const displaySamples = new Float32Array(Math.ceil(samples.length / displayStep));
+  for (let i = 0, j = 0; i < samples.length; i += displayStep, j++) {
+    displaySamples[j] = samples[i];
+  }
 
   return {
     name: '',
@@ -235,7 +271,7 @@ export function analyzeAudio(audioBuffer) {
     dampingFactor,
     binPowers,
     fft: { frequencies, magnitudes },
-    waveform: { samples, sr },
+    waveform: { samples: displaySamples, sr: Math.round(sr / displayStep) },
     damping: { envelope, times },
   };
 }

@@ -5,6 +5,14 @@
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
 const BIN_COLORS = { bass: '#3b82f6', mid: '#10b981', highmid: '#f59e0b', uppermid: '#ef4444', presence: '#8b5cf6', brillance: '#ec4899' };
 
+function safeMax(arr) {
+  let max = -Infinity;
+  for (let i = 0; i < arr.length; i++) {
+    if (arr[i] > max) max = arr[i];
+  }
+  return max;
+}
+
 function setupCanvas(canvas, title) {
   const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
@@ -135,7 +143,7 @@ export function drawBinPowers(canvas, binPowers, title = 'Frequency Bin Power') 
 
   const bins = Object.keys(binPowers);
   const vals = Object.values(binPowers);
-  const maxVal = Math.max(...vals, 1);
+  const maxVal = Math.max(safeMax(vals), 1);
   const barW = plotW / bins.length - 8;
 
   ctx.strokeStyle = '#475569';
@@ -185,7 +193,7 @@ export function drawDamping(canvas, envelope, times, title = 'Amplitude Decay') 
   ctx.font = '11px Inter, system-ui, sans-serif';
   ctx.fillText('Time (s)', ox + plotW / 2 - 20, h - 4);
 
-  const maxEnv = Math.max(...envelope) || 1;
+  const maxEnv = safeMax(envelope) || 1;
   const maxTime = times[times.length - 1];
 
   ctx.strokeStyle = '#f59e0b';
