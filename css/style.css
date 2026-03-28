@@ -284,6 +284,179 @@ audio {
   margin-top: 1rem;
 }
 
+select {
+  padding: 0.55rem 0.85rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.9rem;
+  font-family: inherit;
+  min-width: 200px;
+}
+
+select option { background: var(--bg); color: var(--text); }
+
+/* ── Note Detection ──────────────────────────────────────────────── */
+
+#note-detection {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin-top: 0.75rem;
+}
+
+.note-badge {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.note-match {
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 0.35rem 0.75rem;
+  border-radius: var(--radius);
+}
+
+.note-match.good {
+  background: rgba(16,185,129,0.15);
+  color: var(--green);
+  border: 1px solid rgba(16,185,129,0.3);
+}
+
+.note-match.warn {
+  background: rgba(245,158,11,0.15);
+  color: var(--amber);
+  border: 1px solid rgba(245,158,11,0.3);
+}
+
+/* ── Score Card ──────────────────────────────────────────────────── */
+
+.section-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin: 1.5rem 0 1rem;
+  color: var(--text);
+}
+
+.subsection-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 1rem 0 0.5rem;
+  color: var(--text-dim);
+}
+
+.score-card {
+  display: flex;
+  gap: 1.5rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+  margin-bottom: 1.25rem;
+  align-items: center;
+}
+
+.score-overall {
+  text-align: center;
+  min-width: 90px;
+  flex-shrink: 0;
+}
+
+.score-overall-number {
+  font-size: 2.5rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.score-overall-label {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 0.25rem;
+}
+
+.score-details {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.score-gauge {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.score-gauge-bar {
+  height: 8px;
+  background: var(--surface-2);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.score-gauge-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.5s ease;
+}
+
+.score-gauge-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.score-gauge-label {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
+.score-gauge-value {
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+/* ── Compare Enhancements ────────────────────────────────────────── */
+
+.compare-filter {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.compare-filter-label {
+  font-size: 0.9rem;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+.compare-warn {
+  background: rgba(245,158,11,0.12);
+  border: 1px solid rgba(245,158,11,0.3);
+  color: var(--amber);
+  padding: 0.65rem 1rem;
+  border-radius: var(--radius);
+  font-size: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+/* ── Library Score ───────────────────────────────────────────────── */
+
+.library-score {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--primary);
+  margin-right: 0.5rem;
+}
+
 .hint {
   color: var(--text-dim);
   text-align: center;
@@ -298,4 +471,6 @@ audio {
   .metrics-grid { grid-template-columns: repeat(2, 1fr); }
   .compare-table { font-size: 0.75rem; }
   .compare-table th, .compare-table td { padding: 0.35rem; }
+  .score-card { flex-direction: column; text-align: center; }
+  .score-overall { min-width: auto; }
 }

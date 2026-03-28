@@ -30,9 +30,33 @@
           <button id="btn-upload" class="btn">Upload WAV</button>
           <input type="file" id="file-input" accept=".wav,audio/*" class="hidden" />
           <input type="text" id="guitar-name" placeholder="Guitar name (e.g. Martin D-28)" />
-          <button id="btn-analyze" class="btn primary hidden">Analyze</button>
+        </div>
+        <div class="record-controls">
+          <select id="chord-select">
+            <option value="">What are you playing?</option>
+            <optgroup label="Open Chords">
+              <option value="Open E">Open E</option>
+              <option value="Open Em">Open Em</option>
+              <option value="Open A">Open A</option>
+              <option value="Open Am">Open Am</option>
+              <option value="Open D">Open D</option>
+              <option value="Open Dm">Open Dm</option>
+              <option value="Open G">Open G</option>
+              <option value="Open C">Open C</option>
+            </optgroup>
+            <optgroup label="Single Notes (Open Strings)">
+              <option value="Note E2">E2 (6th string)</option>
+              <option value="Note A2">A2 (5th string)</option>
+              <option value="Note D3">D3 (4th string)</option>
+              <option value="Note G3">G3 (3rd string)</option>
+              <option value="Note B3">B3 (2nd string)</option>
+              <option value="Note E4">E4 (1st string)</option>
+            </optgroup>
+          </select>
+          <button id="btn-analyze" class="btn primary hidden">Save &amp; Score</button>
         </div>
         <p id="rec-status">Click <strong>Record</strong> to capture a chord, or <strong>Upload</strong> a WAV file.</p>
+        <div id="note-detection" class="hidden"></div>
         <audio id="audio-player" controls class="hidden"></audio>
       </div>
       <div id="analysis-output"></div>
