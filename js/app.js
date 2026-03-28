@@ -637,7 +637,44 @@ function renderProfileReport(profile, name, container) {
   });
   html += `</div>`;
 
+  // Export buttons
+  html += `<div class="export-buttons">
+    <button class="btn primary" id="btn-export-html">Download Report (HTML)</button>
+    <button class="btn" id="btn-export-text">Copy Summary to Clipboard</button>
+  </div>`;
+
   container.innerHTML = html;
+
+  // Wire export buttons
+  const btnExportHtml = container.querySelector('#btn-export-html');
+  const btnExportText = container.querySelector('#btn-export-text');
+  if (btnExportHtml) {
+    btnExportHtml.addEventListener('click', () => {
+      downloadHtmlReport(profile, name);
+    });
+  }
+  if (btnExportText) {
+    btnExportText.addEventListener('click', () => {
+      const text = generateTextSummary(profile, name);
+      navigator.clipboard.writeText(text).then(() => {
+        btnExportText.textContent = 'Copied!';
+        setTimeout(() => { btnExportText.textContent = 'Copy Summary to Clipboard'; }, 2000);
+      }).catch(() => {
+        // Fallback for mobile: create a textarea and select
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        btnExportText.textContent = 'Copied!';
+        setTimeout(() => { btnExportText.textContent = 'Copy Summary to Clipboard'; }, 2000);
+      });
+    });
+  }
 
   // Wire up expand/collapse and render charts lazily
   container.querySelectorAll('.profile-step-header').forEach(header => {
@@ -660,6 +697,172 @@ function renderProfileReport(profile, name, container) {
       }
     });
   });
+}
+
+// ── Report Export ──────────────────────────────────────────────────────
+
+function generateTextSummary(profile, name) {
+  const { overall, stringScores, chordScores, categoryScores, strengths, weaknesses, stepResults } = profile;
+  const grade = scoreGrade(overall.overall);
+  const dims = ['sustain', 'harmonics', 'balance', 'inharmonicity', 'clarity', 'dynamicRange'];
+  const catLabels = { bass: 'Bass (E2, A2)', mid: 'Mid (D3, G3)', treble: 'Treble (B3, E4)' };
+  const date = new Date().toLocaleDateString();
+
+  let t = '';
+  t += `Guitar Tone Profile — ${name}\n`;
+  t += `Generated ${date} by Guitar Tone Tools\n`;
+  t += `${'═'.repeat(48)}\n\n`;
+  t += `OVERALL: ${overall.overall}/100  (${grade})\n\n`;
+
+  t += `Score Breakdown:\n`;
+  for (const d of dims) t += `  ${(SCORE_LABELS[d] + ':').padEnd(22)} ${overall[d]}/100\n`;
+  t += '\n';
+
+  if (strengths.length) {
+    t += `Strengths:\n`;
+    for (const s of strengths) t += `  ✓ ${SCORE_LABELS[s.dim]} — ${s.val}/100\n`;
+    t += '\n';
+  }
+  if (weaknesses.length) {
+    t += `Areas for Improvement:\n`;
+    for (const w of weaknesses) t += `  ✗ ${SCORE_LABELS[w.dim]} — ${w.val}/100\n`;
+    t += '\n';
+  }
+
+  t += `String Categories:\n`;
+  for (const [cat, label] of Object.entries(catLabels)) {
+    const sc = categoryScores[cat];
+    if (!sc) continue;
+    t += `  ${label}: ${sc.overall}/100\n`;
+  }
+  t += '\n';
+
+  if (chordScores) {
+    t += `Chord Performance: ${chordScores.overall}/100\n\n`;
+  }
+
+  t += `Individual Steps:\n`;
+  stepResults.forEach((r, i) => {
+    const step = PROFILE_STEPS.find(s => s.id === r.stepId);
+    const sc = r.analysis.scores ? r.analysis.scores.overall : '—';
+    t += `  ${(i + 1 + '.').padEnd(4)} ${(step ? step.label : r.stepId).padEnd(26)} ${sc}/100\n`;
+  });
+  t += '\n';
+  t += `${'─'.repeat(48)}\n`;
+  t += `https://thecodewrangler.github.io/guitar-tone-tools/\n`;
+
+  return t;
+}
+
+function downloadHtmlReport(profile, name) {
+  const { overall, stringScores, chordScores, categoryScores, strengths, weaknesses, stepResults } = profile;
+  const grade = scoreGrade(overall.overall);
+  const dims = ['sustain', 'harmonics', 'balance', 'inharmonicity', 'clarity', 'dynamicRange'];
+  const catLabels = { bass: 'Bass Strings (E2, A2)', mid: 'Mid Strings (D3, G3)', treble: 'Treble Strings (B3, E4)' };
+  const date = new Date().toLocaleDateString();
+  const overallColor = overall.overall >= 75 ? '#22c55e' : overall.overall >= 50 ? '#eab308' : '#ef4444';
+
+  let dimRows = '';
+  for (const d of dims) {
+    dimRows += `<tr><td>${SCORE_LABELS[d]}</td><td>${SCORE_DESCRIPTIONS[d]}</td><td style="font-weight:700;text-align:center">${overall[d]}</td></tr>`;
+  }
+
+  let strengthsHtml = '';
+  if (strengths.length) {
+    strengthsHtml = `<div style="background:#f0fdf4;border-left:4px solid #22c55e;padding:12px 16px;border-radius:8px;margin:8px 0">
+      <strong>Strengths</strong><ul style="margin:6px 0 0">${strengths.map(s => `<li>${SCORE_LABELS[s.dim]} — ${s.val}/100</li>`).join('')}</ul></div>`;
+  }
+  let weaknessHtml = '';
+  if (weaknesses.length) {
+    weaknessHtml = `<div style="background:#fef2f2;border-left:4px solid #ef4444;padding:12px 16px;border-radius:8px;margin:8px 0">
+      <strong>Areas for Improvement</strong><ul style="margin:6px 0 0">${weaknesses.map(w => `<li>${SCORE_LABELS[w.dim]} — ${w.val}/100</li>`).join('')}</ul></div>`;
+  }
+
+  let catHtml = '';
+  for (const [cat, label] of Object.entries(catLabels)) {
+    const sc = categoryScores[cat];
+    if (!sc) continue;
+    let catRows = '';
+    for (const d of [...dims, 'overall']) {
+      catRows += `<tr><td>${SCORE_LABELS[d] || 'Overall'}</td><td style="text-align:center;font-weight:700">${sc[d]}</td></tr>`;
+    }
+    catHtml += `<div style="flex:1;min-width:200px"><h4 style="margin:0 0 6px">${label}</h4>
+      <table style="width:100%;border-collapse:collapse"><tbody>${catRows}</tbody></table></div>`;
+  }
+
+  let chordHtml = '';
+  if (chordScores) {
+    let chordRows = '';
+    for (const d of [...dims, 'overall']) {
+      chordRows += `<tr><td>${SCORE_LABELS[d] || 'Overall'}</td><td style="text-align:center;font-weight:700">${chordScores[d]}</td></tr>`;
+    }
+    chordHtml = `<h3>Chord Performance</h3><table style="width:100%;max-width:400px;border-collapse:collapse"><tbody>${chordRows}</tbody></table>`;
+  }
+
+  let stepsHtml = '';
+  stepResults.forEach((r, i) => {
+    const step = PROFILE_STEPS.find(s => s.id === r.stepId);
+    const sc = r.analysis.scores ? r.analysis.scores.overall : '—';
+    const gr = r.analysis.scores ? scoreGrade(r.analysis.scores.overall) : '';
+    const c = (r.analysis.scores && r.analysis.scores.overall >= 75) ? '#22c55e'
+      : (r.analysis.scores && r.analysis.scores.overall >= 50) ? '#eab308' : '#ef4444';
+    stepsHtml += `<tr><td style="text-align:center">${i + 1}</td><td>${step ? step.label : r.stepId}</td><td style="color:${c};font-weight:700;text-align:center">${sc}/100</td><td style="text-align:center">${gr}</td></tr>`;
+  });
+
+  const html = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Guitar Profile — ${name}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;padding:24px;max-width:720px;margin:0 auto}
+h1,h2,h3,h4{color:#f8fafc}
+h1{font-size:1.6rem;margin-bottom:4px}
+h2{font-size:1.2rem;margin:20px 0 8px}
+h3{font-size:1rem;margin:20px 0 8px}
+table{width:100%;border-collapse:collapse;margin:8px 0 16px}
+td,th{padding:6px 10px;border-bottom:1px solid #334155;text-align:left;font-size:.9rem}
+th{color:#94a3b8;font-weight:600}
+.hero{text-align:center;padding:24px 0}
+.hero-score{font-size:3.5rem;font-weight:800;line-height:1}
+.hero-grade{font-size:1.1rem;color:#94a3b8;margin-top:4px}
+.cats{display:flex;gap:16px;flex-wrap:wrap}
+.footer{margin-top:32px;padding-top:16px;border-top:1px solid #334155;text-align:center;font-size:.8rem;color:#64748b}
+.footer a{color:#60a5fa}
+@media print{body{background:#fff;color:#1e293b}h1,h2,h3,h4{color:#0f172a}td,th{border-color:#cbd5e1}.hero-grade{color:#64748b}.footer{color:#94a3b8}}
+</style></head><body>
+<h1>🎸 Guitar Tone Profile</h1>
+<p style="color:#94a3b8">${name} — ${date}</p>
+
+<div class="hero">
+  <div class="hero-score" style="color:${overallColor}">${overall.overall}</div>
+  <div class="hero-grade">${grade}</div>
+</div>
+
+<h2>Score Breakdown</h2>
+<table><thead><tr><th>Dimension</th><th>Description</th><th style="text-align:center">Score</th></tr></thead><tbody>${dimRows}</tbody></table>
+
+${strengthsHtml}${weaknessHtml}
+
+<h2>String Category Breakdown</h2>
+<div class="cats">${catHtml}</div>
+
+${chordHtml}
+
+<h3>Individual Step Results</h3>
+<table><thead><tr><th style="text-align:center">#</th><th>Step</th><th style="text-align:center">Score</th><th style="text-align:center">Grade</th></tr></thead><tbody>${stepsHtml}</tbody></table>
+
+<div class="footer">Generated by <a href="https://thecodewrangler.github.io/guitar-tone-tools/">Guitar Tone Tools</a></div>
+</body></html>`;
+
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `guitar-profile-${name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.html`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 // ── Compare ────────────────────────────────────────────────────────────

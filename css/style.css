@@ -723,6 +723,22 @@ select option { background: var(--bg); color: var(--text); }
   padding: 2rem 0;
 }
 
+/* ── Export Buttons ──────────────────────────────────────────────── */
+
+.export-buttons {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin: 1.5rem 0 0.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.export-buttons .btn {
+  flex: 1;
+  min-width: 180px;
+}
+
 /* ── Responsive ──────────────────────────────────────────────────── */
 
 @media (max-width: 600px) {
