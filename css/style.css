@@ -1,0 +1,301 @@
+/* ── Reset & Base ─────────────────────────────────────────────────── */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #0f172a;
+  --surface:   #1e293b;
+  --surface-2: #334155;
+  --border:    #475569;
+  --text:      #e2e8f0;
+  --text-dim:  #94a3b8;
+  --primary:   #3b82f6;
+  --primary-h: #2563eb;
+  --danger:    #ef4444;
+  --accent:    #7c3aed;
+  --green:     #10b981;
+  --amber:     #f59e0b;
+  --radius:    10px;
+}
+
+html { font-size: 16px; }
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  line-height: 1.6;
+}
+
+/* ── Layout ──────────────────────────────────────────────────────── */
+
+.app {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem;
+}
+
+header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+header h1 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+header h1 span { color: var(--primary); }
+
+header p {
+  color: var(--text-dim);
+  font-size: 0.95rem;
+  margin-top: 0.25rem;
+}
+
+/* ── Nav ─────────────────────────────────────────────────────────── */
+
+nav {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  margin-bottom: 2rem;
+}
+
+.nav-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 0.5rem 1.25rem;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.nav-btn:hover { background: var(--surface-2); color: var(--text); }
+.nav-btn.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+
+/* ── Pages ───────────────────────────────────────────────────────── */
+
+.page { display: none; }
+.page.active { display: block; }
+
+/* ── Buttons ─────────────────────────────────────────────────────── */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.6rem 1.4rem;
+  border-radius: var(--radius);
+  font-size: 0.9rem;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn:hover { background: var(--surface-2); }
+
+.btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+.btn.primary:hover { background: var(--primary-h); }
+
+.btn.danger { border-color: var(--danger); color: var(--danger); }
+.btn.danger:hover { background: var(--danger); color: #fff; }
+
+.btn.small { padding: 0.35rem 0.85rem; font-size: 0.8rem; }
+
+.btn.recording { background: var(--danger); border-color: var(--danger); color: #fff; animation: pulse 1.2s infinite; }
+
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.5); }
+  50%      { box-shadow: 0 0 0 8px rgba(239,68,68,0); }
+}
+
+/* ── Record Panel ────────────────────────────────────────────────── */
+
+.record-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.record-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.record-controls input[type="text"] {
+  flex: 1;
+  min-width: 180px;
+  padding: 0.55rem 0.85rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.record-controls input[type="text"]::placeholder { color: var(--text-dim); }
+
+#rec-status {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
+audio {
+  width: 100%;
+  margin-top: 0.75rem;
+  border-radius: var(--radius);
+}
+
+.hidden { display: none !important; }
+
+/* ── Metrics ─────────────────────────────────────────────────────── */
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.metric {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.85rem;
+  text-align: center;
+}
+
+.metric-value {
+  display: block;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.metric-label {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-top: 0.15rem;
+}
+
+.metrics-grid.bins .metric-value { font-size: 1rem; }
+
+/* ── Charts ──────────────────────────────────────────────────────── */
+
+.chart-canvas {
+  width: 100%;
+  height: 260px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 1rem;
+}
+
+/* ── Compare ─────────────────────────────────────────────────────── */
+
+.compare-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.compare-check {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.45rem 0.85rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.compare-check input { accent-color: var(--primary); }
+
+.compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1.5rem;
+  font-size: 0.85rem;
+}
+
+.compare-table th, .compare-table td {
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--border);
+  text-align: center;
+}
+
+.compare-table th {
+  background: var(--surface-2);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+}
+
+.compare-table td { background: var(--surface); }
+
+/* ── Library ─────────────────────────────────────────────────────── */
+
+.library-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+  margin-bottom: 0.75rem;
+}
+
+.library-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.library-card-header h3 { font-size: 1rem; }
+.library-card-header div { display: flex; gap: 0.4rem; }
+
+.library-card-meta {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  margin-top: 0.3rem;
+}
+
+.library-card-detail {
+  margin-top: 1rem;
+}
+
+.hint {
+  color: var(--text-dim);
+  text-align: center;
+  padding: 2rem 0;
+}
+
+/* ── Responsive ──────────────────────────────────────────────────── */
+
+@media (max-width: 600px) {
+  .app { padding: 1rem 0.5rem; }
+  header h1 { font-size: 1.35rem; }
+  .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+  .compare-table { font-size: 0.75rem; }
+  .compare-table th, .compare-table td { padding: 0.35rem; }
+}
