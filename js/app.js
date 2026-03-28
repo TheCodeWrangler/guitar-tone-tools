@@ -1295,47 +1295,50 @@ function renderLibrary() {
     container.appendChild(recList);
   }
 
-  container.addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-action]');
-    if (!btn) return;
-    const id = btn.dataset.id;
-    const action = btn.dataset.action;
-
-    if (action === 'delete') {
-      guitars = guitars.filter(g => g.id !== id);
-      saveGuitars();
-      renderLibrary();
-    } else if (action === 'view') {
-      const detail = $(`#detail-${id}`);
-      if (!detail.classList.contains('hidden')) {
-        detail.classList.add('hidden');
-        return;
-      }
-      detail.classList.remove('hidden');
-      const g = guitars.find(g => g.id === id);
-      if (g && !detail.dataset.rendered) {
-        renderSingleAnalysisInto(g.analysis, detail);
-        detail.dataset.rendered = 'true';
-      }
-    } else if (action === 'delete-profile') {
-      profiles = profiles.filter(p => p.id !== id);
-      saveProfiles();
-      renderLibrary();
-    } else if (action === 'view-profile') {
-      const detail = $(`#profile-detail-${id}`);
-      if (!detail.classList.contains('hidden')) {
-        detail.classList.add('hidden');
-        return;
-      }
-      detail.classList.remove('hidden');
-      const p = profiles.find(p => p.id === id);
-      if (p && !detail.dataset.rendered) {
-        renderProfileReport(p.profile, p.name, detail);
-        detail.dataset.rendered = 'true';
-      }
-    }
-  });
 }
+
+$('#library-content').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-action]');
+  if (!btn) return;
+  const id = btn.dataset.id;
+  const action = btn.dataset.action;
+
+  if (action === 'delete') {
+    guitars = guitars.filter(g => g.id !== id);
+    saveGuitars();
+    renderLibrary();
+  } else if (action === 'view') {
+    const detail = $(`#detail-${id}`);
+    if (!detail) return;
+    if (!detail.classList.contains('hidden')) {
+      detail.classList.add('hidden');
+      return;
+    }
+    detail.classList.remove('hidden');
+    const g = guitars.find(g => g.id === id);
+    if (g && !detail.dataset.rendered) {
+      renderSingleAnalysisInto(g.analysis, detail);
+      detail.dataset.rendered = 'true';
+    }
+  } else if (action === 'delete-profile') {
+    profiles = profiles.filter(p => p.id !== id);
+    saveProfiles();
+    renderLibrary();
+  } else if (action === 'view-profile') {
+    const detail = $(`#profile-detail-${id}`);
+    if (!detail) return;
+    if (!detail.classList.contains('hidden')) {
+      detail.classList.add('hidden');
+      return;
+    }
+    detail.classList.remove('hidden');
+    const p = profiles.find(p => p.id === id);
+    if (p && !detail.dataset.rendered) {
+      renderProfileReport(p.profile, p.name, detail);
+      detail.dataset.rendered = 'true';
+    }
+  }
+});
 
 function renderSingleAnalysisInto(a, container) {
   if (a.scores) {
