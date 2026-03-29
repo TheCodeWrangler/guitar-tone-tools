@@ -206,6 +206,7 @@ function serialiseAnalysisCompact(a) {
     },
     stft: serialiseSTFT(a.stft, 40, 192),
     harmonicDecay: serialiseHarmonicDecay(a.harmonicDecay, 40),
+    spectrogramFeatures: a.spectrogramFeatures || null,
   };
 }
 
@@ -225,6 +226,7 @@ function serialiseAnalysis(a) {
     },
     stft: serialiseSTFT(a.stft, 80, 384),
     harmonicDecay: serialiseHarmonicDecay(a.harmonicDecay),
+    spectrogramFeatures: a.spectrogramFeatures || null,
   };
 }
 
@@ -1380,7 +1382,7 @@ async function shareProfile(profile, name) {
 function generateTextSummary(profile, name) {
   const { overall, stringScores, chordScores, categoryScores, strengths, weaknesses, stepResults } = profile;
   const grade = scoreGrade(overall.overall);
-  const dims = ['sustain', 'harmonics', 'balance', 'inharmonicity', 'clarity', 'dynamicRange'];
+  const dims = ['sustain', 'harmonics', 'harmonicSustain', 'balance', 'inharmonicity', 'clarity', 'dynamicRange', 'upperHarmonics', 'attackClarity', 'bodyResonance'];
   const catLabels = { bass: 'Bass (E2, A2)', mid: 'Mid (D3, G3)', treble: 'Treble (B3, E4)' };
   const date = new Date().toLocaleDateString();
 
@@ -1433,7 +1435,7 @@ function generateTextSummary(profile, name) {
 function downloadHtmlReport(profile, name) {
   const { overall, stringScores, chordScores, categoryScores, strengths, weaknesses, stepResults } = profile;
   const grade = scoreGrade(overall.overall);
-  const dims = ['sustain', 'harmonics', 'balance', 'inharmonicity', 'clarity', 'dynamicRange'];
+  const dims = ['sustain', 'harmonics', 'harmonicSustain', 'balance', 'inharmonicity', 'clarity', 'dynamicRange', 'upperHarmonics', 'attackClarity', 'bodyResonance'];
   const catLabels = { bass: 'Bass Strings (E2, A2)', mid: 'Mid Strings (D3, G3)', treble: 'Treble Strings (B3, E4)' };
   const date = new Date().toLocaleDateString();
   const overallColor = overall.overall >= 75 ? '#22c55e' : overall.overall >= 50 ? '#eab308' : '#ef4444';
@@ -1546,7 +1548,7 @@ ${chordHtml}
 function generateRecordingTextSummary(a, guitarName, chord) {
   const scores = a.scores;
   const grade = scoreGrade(scores.overall);
-  const dims = ['sustain', 'harmonics', 'balance', 'inharmonicity', 'clarity', 'dynamicRange'];
+  const dims = ['sustain', 'harmonics', 'harmonicSustain', 'balance', 'inharmonicity', 'clarity', 'dynamicRange', 'upperHarmonics', 'attackClarity', 'bodyResonance'];
   const date = new Date().toLocaleDateString();
   const note = a.detectedNote ? a.detectedNote.name : '—';
 
@@ -1574,7 +1576,7 @@ function generateRecordingTextSummary(a, guitarName, chord) {
 function downloadRecordingHtmlReport(a, guitarName, chord) {
   const scores = a.scores;
   const grade = scoreGrade(scores.overall);
-  const dims = ['sustain', 'harmonics', 'balance', 'inharmonicity', 'clarity', 'dynamicRange'];
+  const dims = ['sustain', 'harmonics', 'harmonicSustain', 'balance', 'inharmonicity', 'clarity', 'dynamicRange', 'upperHarmonics', 'attackClarity', 'bodyResonance'];
   const date = new Date().toLocaleDateString();
   const note = a.detectedNote ? a.detectedNote.name : '—';
   const overallColor = scores.overall >= 75 ? '#22c55e' : scores.overall >= 50 ? '#eab308' : '#ef4444';
