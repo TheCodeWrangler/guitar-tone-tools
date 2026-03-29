@@ -18,6 +18,7 @@ import {
   initStorage,
   loadAllProfiles, saveProfile, saveAllProfiles, deleteProfile as idbDeleteProfile,
   loadAllGuitars, saveGuitar, saveAllGuitars, deleteGuitar as idbDeleteGuitar,
+  estimateStorageUsage,
 } from './storage.js';
 
 // ── Helpers: reference frequency lines for FFT ────────────────────────
@@ -70,6 +71,8 @@ let guitars = [];
 let profiles = [];
 let currentAnalysis = null;
 let currentBlob = null;
+let _readyResolve;
+const storageReady = new Promise(r => { _readyResolve = r; });
 
 async function persistGuitar(g) {
   const serialisable = {
@@ -911,6 +914,7 @@ function renderWizardNoteDetection(analysis, step, container) {
 }
 
 async function finishProfile() {
+  await storageReady;
   try {
     const name = profileNameInput.value.trim();
 
@@ -1293,7 +1297,8 @@ function downloadProfileJson(profile, name) {
   URL.revokeObjectURL(url);
 }
 
-function importProfileFromFile(file) {
+async function importProfileFromFile(file) {
+  await storageReady;
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = async () => {
@@ -2117,6 +2122,17 @@ function renderLibrary() {
     container.appendChild(recList);
   }
 
+  // Storage usage indicator (async, appended when ready)
+  const storageInfo = document.createElement('div');
+  storageInfo.className = 'storage-info';
+  container.appendChild(storageInfo);
+  estimateStorageUsage().then(est => {
+    if (!est) return;
+    const usedMB = (est.usage / (1024 * 1024)).toFixed(1);
+    const quotaMB = (est.quota / (1024 * 1024)).toFixed(0);
+    const pct = est.quota > 0 ? ((est.usage / est.quota) * 100).toFixed(1) : 0;
+    storageInfo.innerHTML = `Storage: ${usedMB} MB used of ${quotaMB} MB available (${pct}%)`;
+  }).catch(() => {});
 }
 
 $('#library-content').addEventListener('click', (e) => {
@@ -2238,12 +2254,22 @@ function renderSingleAnalysisInto(a, container, guitarName, chord, refFreqs) {
 // ── Init ───────────────────────────────────────────────────────────────
 
 (async function init() {
+  let storageOk = false;
   try {
     await initStorage();
     guitars = hydrateGuitarList(await loadAllGuitars());
     profiles = hydrateProfileList(await loadAllProfiles());
+    storageOk = true;
   } catch (e) {
     console.warn('IndexedDB init failed, starting with empty state:', e);
   }
+  _readyResolve();
   renderLibrary();
+  if (!storageOk) {
+    const banner = document.createElement('div');
+    banner.className = 'save-status save-error';
+    banner.style.margin = '1rem';
+    banner.textContent = '⚠ Storage unavailable — profiles will only last until you close this tab. Check your browser privacy settings.';
+    document.querySelector('.app')?.prepend(banner);
+  }
 })();

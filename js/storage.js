@@ -189,3 +189,13 @@ export async function saveAllGuitars(guitars) {
 export async function deleteGuitar(id) {
   return idbDelete(STORE_GUITARS, id);
 }
+
+// Storage usage estimate (via StorageManager API where available)
+
+export async function estimateStorageUsage() {
+  if (navigator.storage && navigator.storage.estimate) {
+    const est = await navigator.storage.estimate();
+    return { usage: est.usage || 0, quota: est.quota || 0 };
+  }
+  return null;
+}
