@@ -13,6 +13,18 @@ function safeMax(arr) {
   return max;
 }
 
+const DB_FLOOR = -60;
+
+function magToDb(mag) {
+  if (mag <= 0) return DB_FLOOR;
+  const db = 20 * Math.log10(mag);
+  return db < DB_FLOOR ? DB_FLOOR : db;
+}
+
+function dbNorm(db) {
+  return (db - DB_FLOOR) / (0 - DB_FLOOR);
+}
+
 function setupCanvas(canvas, title) {
   const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
@@ -87,27 +99,36 @@ export function drawWaveform(canvas, samples, sr, title = 'Waveform') {
   }
 }
 
-export function drawFFT(canvas, frequencies, magnitudes, title = 'Frequency Spectrum', color = '#7c3aed', referenceFreqs = null) {
+export function drawFFT(canvas, frequencies, magnitudes, title = 'Frequency Spectrum (dB)', color = '#7c3aed', referenceFreqs = null) {
   const { ctx, w, h } = setupCanvas(canvas, title);
   const top = 36, bot = 30;
   const plotH = h - top - bot;
-  const plotW = w - 50;
-  const ox = 40;
+  const plotW = w - 56;
+  const ox = 48;
 
-  // Limit to 5000 Hz
   let maxIdx = frequencies.length;
   for (let i = 0; i < frequencies.length; i++) {
     if (frequencies[i] > 5000) { maxIdx = i; break; }
   }
   const maxFreq = frequencies[maxIdx - 1] || 5000;
 
-  // Reference frequency lines (drawn first so spectrum draws over them)
+  // Normalize to peak = 0 dB so the tallest spike touches the top
+  let peakMag = 0;
+  for (let i = 0; i < maxIdx; i++) { if (magnitudes[i] > peakMag) peakMag = magnitudes[i]; }
+  const peakDb = peakMag > 0 ? 20 * Math.log10(peakMag) : 0;
+  const rangeDb = -DB_FLOOR;
+  function yFromMag(mag) {
+    const db = magToDb(mag) - peakDb;
+    const norm = (db - DB_FLOOR) / rangeDb;
+    return top + plotH - norm * plotH;
+  }
+
+  // Reference frequency lines
   if (referenceFreqs && referenceFreqs.length) {
     const REF_COLORS = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899'];
     referenceFreqs.forEach((ref, ri) => {
       if (ref.hz > maxFreq || ref.hz < 0) return;
       const x = ox + (ref.hz / maxFreq) * plotW;
-
       ctx.strokeStyle = REF_COLORS[ri % REF_COLORS.length];
       ctx.globalAlpha = 0.45;
       ctx.lineWidth = 1.5;
@@ -118,7 +139,6 @@ export function drawFFT(canvas, frequencies, magnitudes, title = 'Frequency Spec
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.globalAlpha = 1;
-
       ctx.fillStyle = REF_COLORS[ri % REF_COLORS.length];
       ctx.font = 'bold 9px Inter, system-ui, sans-serif';
       const labelW = ctx.measureText(ref.name).width;
@@ -127,6 +147,7 @@ export function drawFFT(canvas, frequencies, magnitudes, title = 'Frequency Spec
     });
   }
 
+  // Axes
   ctx.strokeStyle = '#475569';
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -135,17 +156,38 @@ export function drawFFT(canvas, frequencies, magnitudes, title = 'Frequency Spec
   ctx.lineTo(ox + plotW, top + plotH);
   ctx.stroke();
 
+  // dB grid lines & labels
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '10px Inter, system-ui, sans-serif';
+  for (let db = 0; db >= DB_FLOOR; db -= 10) {
+    const y = top + plotH - ((db - DB_FLOOR) / rangeDb) * plotH;
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(ox, y);
+    ctx.lineTo(ox + plotW, y);
+    ctx.stroke();
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText(`${db}`, ox - 28, y + 4);
+  }
+
   ctx.fillStyle = '#94a3b8';
   ctx.font = '11px Inter, system-ui, sans-serif';
   ctx.fillText('Frequency (Hz)', ox + plotW / 2 - 35, h - 4);
+  ctx.save();
+  ctx.translate(10, top + plotH / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText('dB', -6, 0);
+  ctx.restore();
 
+  // Spectrum curve
   const step = Math.max(1, Math.floor(maxIdx / (plotW * 2)));
   ctx.strokeStyle = color;
   ctx.lineWidth = 1;
   ctx.beginPath();
   for (let i = 0; i < maxIdx; i += step) {
     const x = ox + (i / maxIdx) * plotW;
-    const y = top + plotH - magnitudes[i] * plotH;
+    const y = yFromMag(magnitudes[i]);
     if (i === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   }
@@ -237,13 +279,20 @@ export function drawDamping(canvas, envelope, times, title = 'Amplitude Decay') 
 // ── Comparison charts ──────────────────────────────────────────────────
 
 export function drawFFTOverlay(canvas, analyses, referenceFreqs = null) {
-  const { ctx, w, h } = setupCanvas(canvas, 'Frequency Spectrum Comparison');
+  const { ctx, w, h } = setupCanvas(canvas, 'Frequency Spectrum Comparison (dB)');
   const top = 36, bot = 40;
   const plotH = h - top - bot;
-  const plotW = w - 50;
-  const ox = 40;
+  const plotW = w - 56;
+  const ox = 48;
   const maxFreq = 5000;
+  const rangeDb = -DB_FLOOR;
 
+  function yFromMag(mag) {
+    const db = magToDb(mag);
+    return top + plotH - ((db - DB_FLOOR) / rangeDb) * plotH;
+  }
+
+  // Reference lines
   if (referenceFreqs && referenceFreqs.length) {
     const REF_COLORS = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899'];
     referenceFreqs.forEach((ref, ri) => {
@@ -267,6 +316,7 @@ export function drawFFTOverlay(canvas, analyses, referenceFreqs = null) {
     });
   }
 
+  // Axes
   ctx.strokeStyle = '#475569';
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -274,6 +324,21 @@ export function drawFFTOverlay(canvas, analyses, referenceFreqs = null) {
   ctx.lineTo(ox, top + plotH);
   ctx.lineTo(ox + plotW, top + plotH);
   ctx.stroke();
+
+  // dB grid
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '10px Inter, system-ui, sans-serif';
+  for (let db = 0; db >= DB_FLOOR; db -= 10) {
+    const y = top + plotH - ((db - DB_FLOOR) / rangeDb) * plotH;
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(ox, y);
+    ctx.lineTo(ox + plotW, y);
+    ctx.stroke();
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText(`${db}`, ox - 28, y + 4);
+  }
 
   ctx.fillStyle = '#94a3b8';
   ctx.font = '11px Inter, system-ui, sans-serif';
@@ -291,7 +356,7 @@ export function drawFFTOverlay(canvas, analyses, referenceFreqs = null) {
     ctx.beginPath();
     for (let i = 0; i < maxIdx; i += step) {
       const x = ox + (i / maxIdx) * plotW;
-      const y = top + plotH - magnitudes[i] * plotH;
+      const y = yFromMag(magnitudes[i]);
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
@@ -366,13 +431,14 @@ export function drawBinPowerCompare(canvas, analyses) {
 }
 
 export function drawMirrorFFT(canvas, a1, a2) {
-  const { ctx, w, h } = setupCanvas(canvas, `Mirror FFT — ${a1.name} vs ${a2.name}`);
+  const { ctx, w, h } = setupCanvas(canvas, `Mirror FFT (dB) — ${a1.name} vs ${a2.name}`);
   const top = 36, bot = 30;
   const plotH = h - top - bot;
   const halfH = plotH / 2;
-  const plotW = w - 50;
-  const ox = 40;
+  const plotW = w - 56;
+  const ox = 48;
   const midY = top + halfH;
+  const rangeDb = -DB_FLOOR;
 
   ctx.strokeStyle = '#475569';
   ctx.lineWidth = 1;
@@ -391,6 +457,26 @@ export function drawMirrorFFT(canvas, a1, a2) {
   ctx.stroke();
   ctx.setLineDash([]);
 
+  // dB ticks (each half)
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '9px Inter, system-ui, sans-serif';
+  for (let db = 0; db >= DB_FLOOR; db -= 20) {
+    const offset = ((db - DB_FLOOR) / rangeDb) * halfH;
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 0.4;
+    ctx.beginPath();
+    ctx.moveTo(ox, midY - offset);
+    ctx.lineTo(ox + plotW, midY - offset);
+    ctx.moveTo(ox, midY + offset);
+    ctx.lineTo(ox + plotW, midY + offset);
+    ctx.stroke();
+    if (db < 0) {
+      ctx.fillStyle = '#94a3b8';
+      ctx.fillText(`${db}`, ox - 26, midY - offset + 3);
+      ctx.fillText(`${db}`, ox - 26, midY + offset + 3);
+    }
+  }
+
   function plotSide(fft, yDir, color) {
     const { frequencies, magnitudes } = fft;
     let maxIdx = frequencies.length;
@@ -403,7 +489,9 @@ export function drawMirrorFFT(canvas, a1, a2) {
     ctx.beginPath();
     for (let i = 0; i < maxIdx; i += step) {
       const x = ox + (i / maxIdx) * plotW;
-      const y = midY - yDir * magnitudes[i] * halfH;
+      const db = magToDb(magnitudes[i]);
+      const norm = (db - DB_FLOOR) / rangeDb;
+      const y = midY - yDir * norm * halfH;
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
