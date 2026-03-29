@@ -700,19 +700,48 @@ function renderWizardStep(autoRecord = false) {
   }
 }
 
+function hasEnergyAtFrequency(analysis, targetHz) {
+  const freqs = analysis.fft.frequencies;
+  const mags = analysis.fft.magnitudes;
+  const tolerance = targetHz * 0.06;
+  let targetEnergy = 0;
+  let totalEnergy = 0;
+  for (let i = 0; i < freqs.length; i++) {
+    const m2 = mags[i] * mags[i];
+    totalEnergy += m2;
+    if (Math.abs(freqs[i] - targetHz) < tolerance) targetEnergy += m2;
+  }
+  return totalEnergy > 0 ? targetEnergy / totalEnergy : 0;
+}
+
 function renderWizardNoteDetection(analysis, step, container) {
   const note = analysis.detectedNote;
   const expectedNote = hzToNote(step.hz);
+  const isChord = step.type === 'chord';
 
   container.classList.remove('hidden');
-  let html = `<span class="note-badge">Detected: <strong>${note.name}</strong> (${analysis.fundamental} Hz`;
-  if (note.cents !== 0) html += `, ${note.cents > 0 ? '+' : ''}${note.cents} cents`;
-  html += `)</span>`;
+  let html = '';
 
-  if (note.note === expectedNote.note && Math.abs(note.octave - expectedNote.octave) <= 1) {
-    html += `<span class="note-match good">Matches expected ${expectedNote.name}</span>`;
+  if (isChord) {
+    // For chords, check if the root note has energy in the FFT rather than
+    // relying on pitch detection (which is unreliable with multiple notes)
+    const rootEnergy = hasEnergyAtFrequency(analysis, step.hz);
+    if (rootEnergy > 0.005) {
+      html += `<span class="note-match good">Root note ${expectedNote.name} detected in chord — sounds good!</span>`;
+    } else {
+      html += `<span class="note-match warn">Root note ${expectedNote.name} is weak — make sure you're fretting the chord correctly.</span>`;
+    }
   } else {
-    html += `<span class="note-match warn">Expected ${expectedNote.name} — detected ${note.name}. Consider re-recording.</span>`;
+    // Single string: pitch detection is reliable
+    html += `<span class="note-badge">Detected: <strong>${note.name}</strong> (${analysis.fundamental} Hz`;
+    if (note.cents !== 0) html += `, ${note.cents > 0 ? '+' : ''}${note.cents} cents`;
+    html += `)</span>`;
+
+    if (note.note === expectedNote.note && Math.abs(note.octave - expectedNote.octave) <= 1) {
+      html += `<span class="note-match good">Matches expected ${expectedNote.name}</span>`;
+    } else {
+      html += `<span class="note-match warn">Expected ${expectedNote.name} — detected ${note.name}. Make sure the string is in tune.</span>`;
+    }
   }
   container.innerHTML = html;
 }
