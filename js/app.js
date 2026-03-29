@@ -817,14 +817,26 @@ function createStringVibrator(canvas, stringIndex) {
 function renderWizardStep(autoRecord = false) {
   const step = PROFILE_STEPS[profileCurrentStep];
   const total = PROFILE_STEPS.length;
-  const pct = ((profileCurrentStep) / total) * 100;
+  const recordedCount = profileStepResults.filter(Boolean).length;
+  const allDone = recordedCount === total;
+
+  // Build stepper dots
+  let dots = '';
+  for (let i = 0; i < total; i++) {
+    const s = PROFILE_STEPS[i];
+    const done = !!profileStepResults[i];
+    const cur = i === profileCurrentStep;
+    let cls = 'stepper-dot';
+    if (cur) cls += ' current';
+    if (done) cls += ' done';
+    dots += `<button class="${cls}" data-step="${i}" title="${s.label}"><span class="dot-pip"></span><span class="dot-id">${s.id}</span></button>`;
+  }
 
   wizardContent.innerHTML = `
-    <div class="wizard-progress">
-      <div class="wizard-progress-bar">
-        <div class="wizard-progress-fill" style="width:${pct}%"></div>
-      </div>
-      <div class="wizard-progress-text">Step ${profileCurrentStep + 1} of ${total}</div>
+    <div class="wizard-stepper">
+      <div class="stepper-track"></div>
+      <div class="stepper-dots">${dots}</div>
+      <div class="stepper-count">${recordedCount} / ${total} recorded</div>
     </div>
     <div class="wizard-step">
       <h3 class="wizard-step-label">${step.label}</h3>
@@ -842,6 +854,7 @@ function renderWizardStep(autoRecord = false) {
         <button id="wiz-next" class="btn primary" disabled>
           ${profileCurrentStep < total - 1 ? 'Next Step →' : 'Finish & Generate Report'}
         </button>
+        ${allDone && profileCurrentStep < total - 1 ? '<button id="wiz-finish" class="btn primary">Finish & Generate Report</button>' : ''}
       </div>
     </div>
   `;
@@ -852,6 +865,7 @@ function renderWizardStep(autoRecord = false) {
   const wizNote     = $('#wiz-note');
   const wizAudio    = $('#wiz-audio');
   const wizNext     = $('#wiz-next');
+  const wizFinish   = $('#wiz-finish');
 
   const wizLevel    = $('#wiz-level');
   const wizLevelFill  = wizLevel.querySelector('.level-meter-fill');
@@ -869,6 +883,35 @@ function renderWizardStep(autoRecord = false) {
     drawStringDiagram(diagCanvas, sIdx);
     diagVibrator = createStringVibrator(diagCanvas, sIdx);
   }
+
+  // Pre-load existing recording for this step
+  const existing = profileStepResults[profileCurrentStep];
+  if (existing) {
+    stepAnalysis = existing.analysis;
+    wizNext.disabled = false;
+    wizRerecord.classList.remove('hidden');
+    wizStatus.textContent = `Previously recorded ${stepAnalysis.duration}s — re-record or continue.`;
+    renderWizardNoteDetection(stepAnalysis, step, wizNote);
+  }
+
+  // Stepper dot navigation
+  function jumpToStep(targetIdx) {
+    if (targetIdx === profileCurrentStep) return;
+    if (stepAnalysis) {
+      profileStepResults[profileCurrentStep] = { stepId: step.id, analysis: stepAnalysis };
+    }
+    if (diagVibrator) { diagVibrator.destroy(); diagVibrator = null; }
+    const recState = getState();
+    if (recState === 'listening' || recState === 'recording' || recState === 'calibrating') {
+      manualStop(); closeMic();
+    }
+    profileCurrentStep = targetIdx;
+    renderWizardStep(false);
+  }
+
+  wizardContent.querySelectorAll('.stepper-dot').forEach(btn => {
+    btn.addEventListener('click', () => jumpToStep(parseInt(btn.dataset.step)));
+  });
 
   async function wizProcessRecording() {
     if (diagVibrator) diagVibrator.stop();
@@ -972,7 +1015,17 @@ function renderWizardStep(autoRecord = false) {
     }
   });
 
-  if (autoRecord) {
+  if (wizFinish) {
+    wizFinish.addEventListener('click', () => {
+      if (stepAnalysis) {
+        profileStepResults[profileCurrentStep] = { stepId: step.id, analysis: stepAnalysis };
+      }
+      if (diagVibrator) { diagVibrator.destroy(); diagVibrator = null; }
+      finishProfile();
+    });
+  }
+
+  if (autoRecord && !existing) {
     setTimeout(() => doRecord(), 300);
   }
 }
