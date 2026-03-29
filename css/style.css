@@ -1179,6 +1179,40 @@ select option { background: var(--surface-solid); color: var(--text); }
   opacity: 0.7;
 }
 
+/* ── Chart Tooltip ───────────────────────────────────────────────── */
+
+.chart-tooltip {
+  position: fixed;
+  z-index: 100;
+  background: var(--surface-solid);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  padding: 0.4rem 0.65rem;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--text);
+  pointer-events: none;
+  white-space: nowrap;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.chart-tooltip.visible { opacity: 1; }
+
+.chart-tooltip .tt-swatch {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+
+.chart-tooltip .tt-label {
+  font-weight: 600;
+}
+
 /* ── Responsive ──────────────────────────────────────────────────── */
 
 @media (max-width: 600px) {

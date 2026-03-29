@@ -683,6 +683,34 @@ export function drawHarmonicDecayCompare(canvas, analyses) {
     ctx.fillText('2×', legendX + 18, legendY);
     legendX += ctx.measureText('2×').width + 28;
   });
+
+  // Hover interaction
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const dpr = window.devicePixelRatio || 1;
+  const hoverLines = [];
+  valid.forEach((a, gi) => {
+    const hd = a.harmonicDecay;
+    const baseColor = COLORS[gi % COLORS.length];
+    showHarmonics.forEach((hi) => {
+      if (hi >= hd.harmonics.length) return;
+      const harm = hd.harmonics[hi];
+      hoverLines.push({
+        label: hi === 0 ? 'Fundamental' : `${harm.harmonic}× Harmonic`,
+        hz: harm.hz,
+        color: baseColor,
+        decayRate: harm.decayRate,
+        guitarName: a.name,
+        points: harm.amplitudes.map((mag, i) => {
+          const x = ox + (hd.times[i] / maxT) * plotW;
+          const db = mag > 0 ? 20 * Math.log10(mag / globalPeak) : dbFloor;
+          const clamped = Math.max(db, dbFloor);
+          const y = top + plotH * (-clamped / -dbFloor);
+          return { x, y, time: hd.times[i], db: mag > 0 ? 20 * Math.log10(mag / globalPeak) : dbFloor };
+        }),
+      });
+    });
+  });
+  attachLineHover(canvas, { lines: hoverLines, imgData, dpr, ox, plotW, top, plotH });
 }
 
 // ── Spectrogram ───────────────────────────────────────────────────────
@@ -919,6 +947,149 @@ export function drawHarmonicDecay(canvas, harmonicDecay, title = 'Harmonic Decay
   ctx.font = '10px Inter, system-ui, sans-serif';
   ctx.fillText('dB', -6, 0);
   ctx.restore();
+
+  // Save image for hover redraw
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const dpr = window.devicePixelRatio || 1;
+
+  attachLineHover(canvas, {
+    lines: harmonics.map((harm, hi) => ({
+      label: harm.harmonic === 1 ? 'Fundamental' : `${harm.harmonic}× Harmonic`,
+      hz: harm.hz,
+      color: HARMONIC_COLORS[hi % HARMONIC_COLORS.length],
+      decayRate: harm.decayRate,
+      points: harm.amplitudes.map((mag, i) => {
+        const x = ox + (times[i] / maxT) * plotW;
+        const db = mag > 0 ? 20 * Math.log10(mag / globalPeak) : dbFloor;
+        const clamped = Math.max(db, dbFloor);
+        const y = top + plotH * (-clamped / -dbFloor);
+        return { x, y, time: times[i], db: mag > 0 ? 20 * Math.log10(mag / globalPeak) : dbFloor };
+      }),
+    })),
+    imgData, dpr, ox, plotW, top, plotH,
+  });
+}
+
+// ── Hover interaction for line charts ─────────────────────────────────
+
+let sharedTooltip = null;
+
+function getTooltip() {
+  if (!sharedTooltip) {
+    sharedTooltip = document.createElement('div');
+    sharedTooltip.className = 'chart-tooltip';
+    document.body.appendChild(sharedTooltip);
+  }
+  return sharedTooltip;
+}
+
+function attachLineHover(canvas, meta) {
+  if (canvas._lineHoverCleanup) canvas._lineHoverCleanup();
+
+  const { lines, imgData, dpr, ox, plotW, top, plotH } = meta;
+
+  function onMove(e) {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    if (mx < ox || mx > ox + plotW || my < top || my > top + plotH) {
+      hideTooltip();
+      return;
+    }
+
+    let bestLine = null;
+    let bestPtIdx = -1;
+    let bestDist = 25;
+
+    for (const line of lines) {
+      for (let i = 0; i < line.points.length; i++) {
+        const p = line.points[i];
+        const dx = p.x - mx;
+        const dy = p.y - my;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d < bestDist) {
+          bestDist = d;
+          bestLine = line;
+          bestPtIdx = i;
+        }
+      }
+    }
+
+    const ctx = canvas.getContext('2d');
+    ctx.putImageData(imgData, 0, 0);
+
+    if (bestLine && bestPtIdx >= 0) {
+      const p = bestLine.points[bestPtIdx];
+
+      ctx.save();
+      ctx.scale(dpr, dpr);
+
+      // Vertical crosshair
+      ctx.strokeStyle = themeColors().label;
+      ctx.globalAlpha = 0.4;
+      ctx.lineWidth = 0.7;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(p.x, top);
+      ctx.lineTo(p.x, top + plotH);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+
+      // Highlight dot
+      ctx.fillStyle = bestLine.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      ctx.restore();
+
+      const tip = getTooltip();
+      const hzStr = bestLine.hz ? ` (${Math.round(bestLine.hz)} Hz)` : '';
+      const rateStr = bestLine.decayRate != null ? `<br>Decay: ${bestLine.decayRate.toFixed(1)}/s` : '';
+      const nameStr = bestLine.guitarName ? `<br>${bestLine.guitarName}` : '';
+      tip.innerHTML =
+        `<span class="tt-swatch" style="background:${bestLine.color}"></span>` +
+        `<span class="tt-label">${bestLine.label}</span>${hzStr}${nameStr}` +
+        `<br>${p.db.toFixed(1)} dB @ ${p.time.toFixed(2)}s${rateStr}`;
+
+      const tipX = e.clientX + 14;
+      const tipY = e.clientY - 14;
+      tip.style.left = tipX + 'px';
+      tip.style.top = tipY + 'px';
+      tip.classList.add('visible');
+
+      // Keep tooltip on screen
+      requestAnimationFrame(() => {
+        const tr = tip.getBoundingClientRect();
+        if (tr.right > window.innerWidth - 8) tip.style.left = (e.clientX - tr.width - 10) + 'px';
+        if (tr.bottom > window.innerHeight - 8) tip.style.top = (e.clientY - tr.height - 10) + 'px';
+      });
+    } else {
+      hideTooltip();
+    }
+  }
+
+  function hideTooltip() {
+    const tip = getTooltip();
+    tip.classList.remove('visible');
+    const ctx = canvas.getContext('2d');
+    ctx.putImageData(imgData, 0, 0);
+  }
+
+  function onLeave() { hideTooltip(); }
+
+  canvas.addEventListener('mousemove', onMove);
+  canvas.addEventListener('mouseleave', onLeave);
+
+  canvas._lineHoverCleanup = () => {
+    canvas.removeEventListener('mousemove', onMove);
+    canvas.removeEventListener('mouseleave', onLeave);
+  };
 }
 
 export function drawMirrorFFT(canvas, a1, a2) {
