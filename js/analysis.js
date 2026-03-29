@@ -485,6 +485,185 @@ function trackHarmonicDecay(stft, fundamental) {
   return { times: Array.from(times), harmonics };
 }
 
+// ── Spectrogram-Derived Feature Extraction ────────────────────────────
+
+function computeSpectrogramFeatures(stft, fundamental) {
+  const { times, frequencies, matrix } = stft;
+  const numFrames = times.length;
+  const numBins = frequencies.length;
+  if (numFrames < 3 || !fundamental || fundamental < 20) {
+    return {
+      upperHarmonicEnergy: 0,
+      upperHarmonicPersistence: 0,
+      attackBroadbandEnergy: 0,
+      attackEvenness: 0,
+      bodyResonanceEvenness: 0,
+      noiseFloorLevel: 0,
+    };
+  }
+
+  // Find frequency bin indices for key boundaries
+  let idx1k = 0, idx2k = 0, idx5k = 0, idx10k = 0;
+  for (let i = 0; i < numBins; i++) {
+    if (frequencies[i] <= 1000) idx1k = i;
+    if (frequencies[i] <= 2000) idx2k = i;
+    if (frequencies[i] <= 5000) idx5k = i;
+    if (frequencies[i] <= 10000) idx10k = i;
+  }
+
+  // --- Upper Harmonic Energy & Persistence ---
+  // A quality guitar sustains energy above 2 kHz much longer.
+  // Measure the ratio of upper (2k-10k) to lower (0-2k) energy across time,
+  // and how long upper harmonics persist above the noise floor.
+
+  const attackEnd = Math.min(3, numFrames);
+  const sustainStart = attackEnd;
+  const sustainEnd = numFrames;
+
+  let lowerEnergyTotal = 0;
+  let upperEnergyTotal = 0;
+  let upperPersistenceFrames = 0;
+
+  // Compute overall peak for dB reference
+  let globalPeak = 0;
+  for (let t = 0; t < numFrames; t++) {
+    for (let i = 0; i < numBins; i++) {
+      if (matrix[t][i] > globalPeak) globalPeak = matrix[t][i];
+    }
+  }
+  if (globalPeak === 0) globalPeak = 1;
+
+  const upperNoiseThreshold = globalPeak * 0.005;
+
+  for (let t = sustainStart; t < sustainEnd; t++) {
+    let lowerE = 0, upperE = 0;
+    for (let i = 0; i <= idx2k; i++) {
+      lowerE += matrix[t][i] * matrix[t][i];
+    }
+    let hasUpperEnergy = false;
+    for (let i = idx2k + 1; i <= idx10k && i < numBins; i++) {
+      const mag = matrix[t][i];
+      upperE += mag * mag;
+      if (mag > upperNoiseThreshold) hasUpperEnergy = true;
+    }
+    lowerEnergyTotal += lowerE;
+    upperEnergyTotal += upperE;
+    if (hasUpperEnergy) upperPersistenceFrames++;
+  }
+
+  const sustainFrameCount = Math.max(1, sustainEnd - sustainStart);
+  const upperHarmonicEnergy = lowerEnergyTotal > 0
+    ? upperEnergyTotal / (lowerEnergyTotal + upperEnergyTotal)
+    : 0;
+  const upperHarmonicPersistence = upperPersistenceFrames / sustainFrameCount;
+
+  // --- Attack Quality ---
+  // The initial transient should have broad, even energy distribution.
+  // A quality guitar transfers pluck energy efficiently into the body,
+  // producing a clean, wide-band attack.
+
+  const attackBands = [
+    [0, idx1k],
+    [idx1k, idx2k],
+    [idx2k, idx5k],
+    [idx5k, idx10k],
+  ];
+  const bandEnergies = [];
+
+  for (const [lo, hi] of attackBands) {
+    let energy = 0;
+    for (let t = 0; t < attackEnd; t++) {
+      for (let i = lo; i <= hi && i < numBins; i++) {
+        energy += matrix[t][i] * matrix[t][i];
+      }
+    }
+    bandEnergies.push(energy);
+  }
+
+  const totalAttackEnergy = bandEnergies.reduce((s, v) => s + v, 0) || 1;
+  const attackProbs = bandEnergies.map(e => e / totalAttackEnergy);
+
+  let attackEntropy = 0;
+  for (const p of attackProbs) {
+    if (p > 0) attackEntropy -= p * Math.log2(p);
+  }
+  const maxAttackEntropy = Math.log2(attackBands.length);
+  const attackEvenness = attackEntropy / maxAttackEntropy;
+
+  const attackBroadbandEnergy = bandEnergies.filter(e => e / totalAttackEnergy > 0.05).length / attackBands.length;
+
+  // --- Body Resonance Evenness ---
+  // Quality guitars have smooth body resonances across the mid spectrum.
+  // Cheap guitars show uneven peaks/dead zones. Measure this via the
+  // spectral variance in the sustain phase across the 100-2000 Hz range.
+
+  let idx100 = 0;
+  for (let i = 0; i < numBins; i++) {
+    if (frequencies[i] <= 100) idx100 = i;
+  }
+
+  const bodyBandSize = 12;
+  const bodyBands = [];
+  for (let i = idx100; i < idx2k; i += bodyBandSize) {
+    const end = Math.min(i + bodyBandSize, idx2k);
+    let bandEnergy = 0;
+    for (let t = sustainStart; t < sustainEnd; t++) {
+      for (let j = i; j < end; j++) {
+        bandEnergy += matrix[t][j] * matrix[t][j];
+      }
+    }
+    bodyBands.push(bandEnergy);
+  }
+
+  let bodyResonanceEvenness = 0;
+  if (bodyBands.length >= 2) {
+    const bodyTotal = bodyBands.reduce((s, v) => s + v, 0) || 1;
+    const bodyProbs = bodyBands.map(e => e / bodyTotal);
+    let bodyEntropy = 0;
+    for (const p of bodyProbs) {
+      if (p > 0) bodyEntropy -= p * Math.log2(p);
+    }
+    bodyResonanceEvenness = bodyEntropy / Math.log2(bodyBands.length);
+  }
+
+  // --- Noise Floor Level ---
+  // Measure energy in non-harmonic frequency bins during the sustain phase.
+  // A quality guitar (and recording) has a cleaner noise floor.
+
+  const harmonicBins = new Uint8Array(numBins);
+  if (fundamental > 20) {
+    for (let h = 1; h <= 20; h++) {
+      const hf = fundamental * h;
+      if (hf > frequencies[numBins - 1]) break;
+      const tolerance = Math.max(hf * 0.04, 10);
+      for (let i = 0; i < numBins; i++) {
+        if (Math.abs(frequencies[i] - hf) < tolerance) harmonicBins[i] = 1;
+      }
+    }
+  }
+
+  let harmonicE = 0, nonHarmonicE = 0;
+  for (let t = sustainStart; t < sustainEnd; t++) {
+    for (let i = 0; i < numBins; i++) {
+      const m2 = matrix[t][i] * matrix[t][i];
+      if (harmonicBins[i]) harmonicE += m2;
+      else nonHarmonicE += m2;
+    }
+  }
+
+  const totalSignalE = harmonicE + nonHarmonicE;
+  const noiseFloorLevel = totalSignalE > 0 ? nonHarmonicE / totalSignalE : 1;
+
+  return {
+    upperHarmonicEnergy,
+    upperHarmonicPersistence,
+    attackBroadbandEnergy,
+    attackEvenness,
+    bodyResonanceEvenness,
+    noiseFloorLevel,
+  };
+}
+
 // ── Public API ─────────────────────────────────────────────────────────
 
 export function analyzeAudio(audioBuffer) {
@@ -502,6 +681,7 @@ export function analyzeAudio(audioBuffer) {
   const stftFull = computeSTFT(samples, sr);
   const stft = downsampleSTFT(stftFull, 80, 5000, 384);
   const harmonicDecay = trackHarmonicDecay(stftFull, fundamental);
+  const spectrogramFeatures = computeSpectrogramFeatures(stftFull, fundamental);
 
   const displayStep = Math.max(1, Math.floor(samples.length / 20000));
   const displaySamples = new Float32Array(Math.ceil(samples.length / displayStep));
@@ -521,6 +701,7 @@ export function analyzeAudio(audioBuffer) {
     damping: { envelope, times },
     stft,
     harmonicDecay,
+    spectrogramFeatures,
   };
 }
 

@@ -241,6 +241,97 @@ function scoreHarmonicSustain(harmonicDecay) {
   return clamp(Math.round(score));
 }
 
+/**
+ * Upper harmonic extension: how much energy the guitar produces and sustains
+ * above 2 kHz. A quality solid-top guitar excites a broader, stronger set of
+ * upper harmonics that persist over time — producing the "sparkly," complex,
+ * projecting tone luthiers prize. A cheap laminate-top guitar dampens high
+ * frequencies, concentrating energy in the low-mid range.
+ *
+ * Uses two STFT-derived metrics:
+ *   - upperHarmonicEnergy: ratio of energy above 2 kHz to total energy
+ *   - upperHarmonicPersistence: fraction of sustain frames where upper harmonics
+ *     remain above the noise floor
+ */
+function scoreUpperHarmonics(spectrogramFeatures) {
+  if (!spectrogramFeatures) return 50;
+  const { upperHarmonicEnergy, upperHarmonicPersistence } = spectrogramFeatures;
+
+  // Energy ratio: 0.15+ is excellent (rich upper spectrum), 0.02 is dull
+  const energyScore = clamp(Math.round(
+    Math.min(upperHarmonicEnergy / 0.12, 1) * 100
+  ));
+
+  // Persistence: 0.8+ means upper harmonics last through most of the note
+  const persistScore = clamp(Math.round(upperHarmonicPersistence * 100));
+
+  return clamp(Math.round(energyScore * 0.5 + persistScore * 0.5));
+}
+
+/**
+ * Attack clarity: quality of the initial pluck transient. A good acoustic
+ * guitar efficiently transfers pluck energy into the body, producing a clean,
+ * broadly-distributed transient across many frequency bands. Cheap guitars
+ * can have muddier, less even attack transients with poor projection into
+ * body resonances.
+ *
+ * Uses two STFT-derived metrics:
+ *   - attackBroadbandEnergy: fraction of frequency bands that receive
+ *     meaningful energy during the attack
+ *   - attackEvenness: normalized entropy of the attack energy distribution
+ */
+function scoreAttackClarity(spectrogramFeatures) {
+  if (!spectrogramFeatures) return 50;
+  const { attackBroadbandEnergy, attackEvenness } = spectrogramFeatures;
+
+  // Broadband: 1.0 = all bands active (ideal), 0.25 = only one band
+  const broadbandScore = clamp(Math.round(attackBroadbandEnergy * 100));
+
+  // Evenness: higher entropy = more balanced distribution across bands
+  // Sweet spot around 0.6-0.85; perfectly flat is slightly less ideal than
+  // having some natural emphasis on the fundamental region.
+  let evennessScore;
+  if (attackEvenness <= 0.85) {
+    evennessScore = clamp(Math.round((attackEvenness / 0.85) * 100));
+  } else {
+    evennessScore = clamp(Math.round(100 - (attackEvenness - 0.85) / 0.15 * 15));
+  }
+
+  return clamp(Math.round(broadbandScore * 0.4 + evennessScore * 0.6));
+}
+
+/**
+ * Body resonance: how smoothly the guitar body amplifies frequencies across
+ * the 100–2000 Hz range during the sustain phase. Quality guitars with proper
+ * bracing and solid tops produce smooth, balanced resonance. Cheap guitars
+ * show pronounced "wolf" tones, dead zones, or overly damped bands — visible
+ * as uneven brightness or gaps in the spectrogram.
+ *
+ * Uses two STFT-derived metrics:
+ *   - bodyResonanceEvenness: normalized entropy across ~12-bin sub-bands
+ *     in the 100–2000 Hz body resonance range
+ *   - noiseFloorLevel: ratio of non-harmonic energy to total energy
+ *     (lower = cleaner signal, better instrument/recording)
+ */
+function scoreBodyResonance(spectrogramFeatures) {
+  if (!spectrogramFeatures) return 50;
+  const { bodyResonanceEvenness, noiseFloorLevel } = spectrogramFeatures;
+
+  // Resonance evenness: 0.7+ is excellent (smooth body response),
+  // 0.3 indicates prominent dead zones or wolf tones
+  let resonanceScore;
+  if (bodyResonanceEvenness <= 0.85) {
+    resonanceScore = clamp(Math.round((bodyResonanceEvenness / 0.85) * 100));
+  } else {
+    resonanceScore = clamp(Math.round(100 - (bodyResonanceEvenness - 0.85) / 0.15 * 10));
+  }
+
+  // Noise floor: 0.1 = very clean, 0.5+ = noisy
+  const cleanScore = clamp(Math.round((1 - Math.min(noiseFloorLevel / 0.4, 1)) * 100));
+
+  return clamp(Math.round(resonanceScore * 0.65 + cleanScore * 0.35));
+}
+
 function clamp(v, min = 0, max = 100) {
   return Math.max(min, Math.min(max, v));
 }
@@ -248,17 +339,20 @@ function clamp(v, min = 0, max = 100) {
 // ── Composite scoring ──────────────────────────────────────────────────
 
 const WEIGHTS = {
-  sustain:        0.18,
-  harmonics:      0.17,
-  harmonicSustain:0.12,
-  balance:        0.13,
-  inharmonicity:  0.13,
-  clarity:        0.14,
-  dynamicRange:   0.13,
+  sustain:          0.13,
+  harmonics:        0.11,
+  harmonicSustain:  0.09,
+  balance:          0.09,
+  inharmonicity:    0.09,
+  clarity:          0.10,
+  dynamicRange:     0.09,
+  upperHarmonics:   0.12,
+  attackClarity:    0.09,
+  bodyResonance:    0.09,
 };
 
 export function computeScores(analysis) {
-  const { fundamental, dampingFactor, binPowers, fft, damping, harmonicDecay } = analysis;
+  const { fundamental, dampingFactor, binPowers, fft, damping, harmonicDecay, spectrogramFeatures } = analysis;
   const { frequencies, magnitudes } = fft;
   const { envelope } = damping;
 
@@ -270,6 +364,9 @@ export function computeScores(analysis) {
     inharmonicity:   scoreInharmonicity(frequencies, magnitudes, fundamental),
     clarity:         scoreClarity(frequencies, magnitudes, fundamental),
     dynamicRange:    scoreDynamicRange(envelope),
+    upperHarmonics:  scoreUpperHarmonics(spectrogramFeatures),
+    attackClarity:   scoreAttackClarity(spectrogramFeatures),
+    bodyResonance:   scoreBodyResonance(spectrogramFeatures),
   };
 
   let overall = 0;
@@ -289,6 +386,9 @@ export const SCORE_LABELS = {
   inharmonicity:   'Inharmonicity',
   clarity:         'Clarity',
   dynamicRange:    'Dynamic Range',
+  upperHarmonics:  'Upper Harmonics',
+  attackClarity:   'Attack Clarity',
+  bodyResonance:   'Body Resonance',
   overall:         'Overall',
 };
 
@@ -300,6 +400,9 @@ export const SCORE_DESCRIPTIONS = {
   inharmonicity:   'How closely overtones align to perfect harmonic intervals',
   clarity:         'Sharpness and definition of tonal peaks vs background noise',
   dynamicRange:    'Signal-to-noise ratio of the recording',
+  upperHarmonics:  'Strength and persistence of overtones above 2 kHz — sparkle and projection',
+  attackClarity:   'Cleanness and breadth of the initial pluck transient',
+  bodyResonance:   'Smoothness and balance of body resonances across the mid spectrum',
 };
 
 export function scoreGrade(score) {

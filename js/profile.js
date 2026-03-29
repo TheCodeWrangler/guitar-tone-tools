@@ -94,19 +94,27 @@ export function computeProfile(stepResults) {
 
   // Overall composite: 65% strings, 35% chords
   const overall = {};
-  const dims = ['sustain', 'harmonics', 'balance', 'inharmonicity', 'clarity', 'dynamicRange'];
+  const dims = [
+    'sustain', 'harmonics', 'harmonicSustain', 'balance',
+    'inharmonicity', 'clarity', 'dynamicRange',
+    'upperHarmonics', 'attackClarity', 'bodyResonance',
+  ];
   for (const dim of dims) {
     const sVal = stringScores[dim] || 0;
     const cVal = chordScores ? (chordScores[dim] || 0) : sVal;
     overall[dim] = Math.round(sVal * 0.65 + cVal * 0.35);
   }
   overall.overall = Math.round(
-    overall.sustain * 0.20 +
-    overall.harmonics * 0.20 +
-    overall.balance * 0.15 +
-    overall.inharmonicity * 0.15 +
-    overall.clarity * 0.15 +
-    overall.dynamicRange * 0.15
+    overall.sustain * 0.13 +
+    overall.harmonics * 0.11 +
+    overall.harmonicSustain * 0.09 +
+    overall.balance * 0.09 +
+    overall.inharmonicity * 0.09 +
+    overall.clarity * 0.10 +
+    overall.dynamicRange * 0.09 +
+    overall.upperHarmonics * 0.12 +
+    overall.attackClarity * 0.09 +
+    overall.bodyResonance * 0.09
   );
 
   // Strengths and weaknesses
