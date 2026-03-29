@@ -1,6 +1,6 @@
 /**
  * Main application controller — wires the UI to the recorder, analysis, and scoring engines.
- * All guitar data is persisted in localStorage so comparisons survive reloads.
+ * All guitar data is persisted in IndexedDB (with automatic migration from localStorage).
  */
 import { openMic, closeMic, finishRecording, manualStop, getState, getOnsetThreshold, loadAudioFile } from './recorder.js';
 import { analyzeAudio } from './analysis.js';
@@ -14,6 +14,11 @@ import {
   drawDecayRateCompare, drawHarmonicDecayCompare,
 } from './charts.js';
 import { PROFILE_STEPS, STRING_CATEGORIES, CHORD_DIAGRAMS, STRING_DIAGRAMS, CHORD_NOTES, computeProfile } from './profile.js';
+import {
+  initStorage,
+  loadAllProfiles, saveProfile, saveAllProfiles, deleteProfile as idbDeleteProfile,
+  loadAllGuitars, saveGuitar, saveAllGuitars, deleteGuitar as idbDeleteGuitar,
+} from './storage.js';
 
 // ── Helpers: reference frequency lines for FFT ────────────────────────
 
@@ -61,64 +66,49 @@ function buildRefFreqsForStep(step) {
 
 // ── State ──────────────────────────────────────────────────────────────
 
-const STORAGE_KEY = 'gtt_guitars';
-const PROFILE_STORAGE_KEY = 'gtt_profiles';
-
-let guitars = loadGuitars();
-let profiles = loadProfiles();
+let guitars = [];
+let profiles = [];
 let currentAnalysis = null;
 let currentBlob = null;
 
-function loadGuitars() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch { return []; }
+async function persistGuitar(g) {
+  const serialisable = {
+    id: g.id,
+    name: g.name,
+    chord: g.chord || '',
+    analysis: serialiseAnalysis(g.analysis),
+  };
+  await saveGuitar(serialisable);
 }
 
-function saveGuitars() {
+async function persistAllGuitars() {
   const serialisable = guitars.map(g => ({
     id: g.id,
     name: g.name,
     chord: g.chord || '',
     analysis: serialiseAnalysis(g.analysis),
   }));
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(serialisable));
+  await saveAllGuitars(serialisable);
 }
 
-function loadProfiles() {
-  try {
-    const raw = localStorage.getItem(PROFILE_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch { return []; }
+async function persistProfile(entry) {
+  const serialisable = {
+    id: entry.id,
+    name: entry.name,
+    timestamp: entry.timestamp,
+    profile: serialiseProfile(entry.profile),
+  };
+  await saveProfile(serialisable);
 }
 
-function saveProfiles() {
+async function persistAllProfiles() {
   const serialisable = profiles.map(p => ({
     id: p.id,
     name: p.name,
     timestamp: p.timestamp,
     profile: serialiseProfile(p.profile),
   }));
-  const json = JSON.stringify(serialisable);
-  try {
-    localStorage.setItem(PROFILE_STORAGE_KEY, json);
-    return true;
-  } catch (e) {
-    // localStorage full — try with more aggressive trimming
-    const compact = profiles.map(p => ({
-      id: p.id,
-      name: p.name,
-      timestamp: p.timestamp,
-      profile: serialiseProfileCompact(p.profile),
-    }));
-    try {
-      localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(compact));
-      return true;
-    } catch (e2) {
-      throw new Error('Storage full — could not save. Try deleting old profiles from the Library.');
-    }
-  }
+  await saveAllProfiles(serialisable);
 }
 
 function serialiseProfileCompact(prof) {
@@ -255,23 +245,27 @@ function hydrateAnalysis(a) {
   return a;
 }
 
-guitars = guitars.map(g => {
-  if (g.analysis && g.analysis.fft) {
-    g.analysis = hydrateAnalysis(g.analysis);
-    if (!g.chord) g.chord = '';
-  }
-  return g;
-});
+function hydrateGuitarList(raw) {
+  return raw.map(g => {
+    if (g.analysis && g.analysis.fft) {
+      g.analysis = hydrateAnalysis(g.analysis);
+      if (!g.chord) g.chord = '';
+    }
+    return g;
+  });
+}
 
-profiles = profiles.map(p => {
-  if (p.profile && p.profile.stepResults) {
-    p.profile.stepResults = p.profile.stepResults.map(r => ({
-      stepId: r.stepId,
-      analysis: hydrateAnalysis(r.analysis),
-    }));
-  }
-  return p;
-});
+function hydrateProfileList(raw) {
+  return raw.map(p => {
+    if (p.profile && p.profile.stepResults) {
+      p.profile.stepResults = p.profile.stepResults.map(r => ({
+        stepId: r.stepId,
+        analysis: hydrateAnalysis(r.analysis),
+      }));
+    }
+    return p;
+  });
+}
 
 // ── DOM references ─────────────────────────────────────────────────────
 
@@ -443,8 +437,9 @@ btnAnalyze.addEventListener('click', () => {
     const chord = chordSelect.value;
 
     const id = Date.now().toString(36);
-    guitars.push({ id, name, chord, analysis: currentAnalysis });
-    try { saveGuitars(); } catch (e) { console.warn('localStorage save failed:', e); }
+    const entry = { id, name, chord, analysis: currentAnalysis };
+    guitars.push(entry);
+    persistGuitar(entry).catch(e => console.warn('IndexedDB save failed:', e));
 
     renderSingleAnalysis(currentAnalysis);
     recStatus.textContent = `"${name}" (${chord}) saved with a score of ${currentAnalysis.scores.overall}/100! Compare it on the Compare page.`;
@@ -915,11 +910,10 @@ function renderWizardNoteDetection(analysis, step, container) {
   container.innerHTML = html;
 }
 
-function finishProfile() {
+async function finishProfile() {
   try {
     const name = profileNameInput.value.trim();
 
-    // Compact step results — ensure no sparse slots
     const compactResults = profileStepResults.filter(Boolean);
     if (compactResults.length === 0) {
       wizardContent.innerHTML = '<p class="compare-warn">No recordings found. Please try again.</p>';
@@ -938,17 +932,16 @@ function finishProfile() {
 
     let saveError = null;
     try {
-      saveProfiles();
+      await persistProfile(entry);
     } catch (storageErr) {
       saveError = storageErr.message;
-      console.warn('Could not save to localStorage:', storageErr);
+      console.warn('Could not save profile:', storageErr);
     }
 
     wizardContent.classList.add('hidden');
     wizardContent.innerHTML = '';
     profileReport.classList.remove('hidden');
 
-    // Show save status banner before the report
     if (saveError) {
       profileReport.innerHTML = `<div class="save-status save-error">⚠ Profile generated but NOT saved: ${saveError}</div>`;
     } else {
@@ -963,7 +956,6 @@ function finishProfile() {
     profileNameInput.disabled = false;
     btnStartProfile.textContent = 'Start New Profile';
 
-    // Scroll report into view (critical on mobile)
     setTimeout(() => profileReport.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
   } catch (err) {
     console.error('Profile generation failed:', err);
@@ -1199,13 +1191,12 @@ function openRerecordPanel(panel, stepIdx, stepId, profile, name, reportContaine
       const recomputed = computeProfile(profile.stepResults);
       Object.assign(profile, recomputed);
 
-      // Update in profiles array and save
       if (entryId) {
         const entry = profiles.find(p => p.id === entryId);
         if (entry) {
           entry.profile = profile;
           entry.timestamp = new Date().toISOString();
-          try { saveProfiles(); } catch (e) { console.warn('Save failed:', e); }
+          persistProfile(entry).catch(e => console.warn('Save failed:', e));
         }
       }
 
@@ -1305,7 +1296,7 @@ function downloadProfileJson(profile, name) {
 function importProfileFromFile(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       try {
         const data = JSON.parse(reader.result);
         if (data._format !== 'guitar-tone-tools-profile' || !data.profile || !data.name) {
@@ -1326,7 +1317,7 @@ function importProfileFromFile(file) {
           profile: prof,
         };
         profiles.push(entry);
-        try { saveProfiles(); } catch (e) { console.warn('localStorage save failed:', e); }
+        await persistProfile(entry).catch(e => console.warn('IndexedDB save failed:', e));
         resolve(entry);
       } catch (e) {
         reject(new Error('Could not read profile file: ' + e.message));
@@ -2136,7 +2127,7 @@ $('#library-content').addEventListener('click', (e) => {
 
   if (action === 'delete') {
     guitars = guitars.filter(g => g.id !== id);
-    saveGuitars();
+    idbDeleteGuitar(id).catch(e => console.warn('Delete failed:', e));
     renderLibrary();
   } else if (action === 'view') {
     const detail = $(`#detail-${id}`);
@@ -2159,7 +2150,7 @@ $('#library-content').addEventListener('click', (e) => {
     if (p) downloadProfileJson(p.profile, p.name);
   } else if (action === 'delete-profile') {
     profiles = profiles.filter(p => p.id !== id);
-    saveProfiles();
+    idbDeleteProfile(id).catch(e => console.warn('Delete failed:', e));
     renderLibrary();
   } else if (action === 'view-profile') {
     const detail = $(`#profile-detail-${id}`);
@@ -2246,4 +2237,13 @@ function renderSingleAnalysisInto(a, container, guitarName, chord, refFreqs) {
 
 // ── Init ───────────────────────────────────────────────────────────────
 
-renderLibrary();
+(async function init() {
+  try {
+    await initStorage();
+    guitars = hydrateGuitarList(await loadAllGuitars());
+    profiles = hydrateProfileList(await loadAllProfiles());
+  } catch (e) {
+    console.warn('IndexedDB init failed, starting with empty state:', e);
+  }
+  renderLibrary();
+})();
