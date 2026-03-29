@@ -411,7 +411,7 @@ btnStartProfile.addEventListener('click', () => {
   renderWizardStep();
 });
 
-function renderWizardStep() {
+function renderWizardStep(autoRecord = false) {
   const step = PROFILE_STEPS[profileCurrentStep];
   const total = PROFILE_STEPS.length;
   const pct = ((profileCurrentStep) / total) * 100;
@@ -539,12 +539,16 @@ function renderWizardStep() {
     };
     profileCurrentStep++;
     if (profileCurrentStep < total) {
-      renderWizardStep();
+      renderWizardStep(true);
       setTimeout(() => wizardContent.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
     } else {
       finishProfile();
     }
   });
+
+  if (autoRecord) {
+    setTimeout(() => doRecord(), 300);
+  }
 }
 
 function renderWizardNoteDetection(analysis, step, container) {
