@@ -3,15 +3,37 @@
  * Collects 6 open strings + 4 chords, then produces a composite report card.
  */
 
+/**
+ * Chord diagram data: frets[6] = fret per string (low E → high E).
+ *   -1 = muted (X), 0 = open (O), 1+ = fretted.
+ * fingers[6] = finger label per string ('' if open/muted).
+ */
+export const CHORD_DIAGRAMS = {
+  G:  { frets: [3, 2, 0, 0, 0, 3], fingers: ['2', '1', '', '', '', '3'], startFret: 1 },
+  C:  { frets: [-1, 3, 2, 0, 1, 0], fingers: ['', '3', '2', '', '1', ''], startFret: 1 },
+  Em: { frets: [0, 2, 2, 0, 0, 0], fingers: ['', '2', '3', '', '', ''], startFret: 1 },
+  D:  { frets: [-1, -1, 0, 2, 3, 2], fingers: ['', '', '', '1', '3', '2'], startFret: 1 },
+};
+
+/**
+ * String pluck diagrams: which string to pluck (0-indexed, low E = 0).
+ */
+export const STRING_DIAGRAMS = {
+  E2: { stringIndex: 0, label: '6th (thickest)' },
+  A2: { stringIndex: 1, label: '5th' },
+  D3: { stringIndex: 2, label: '4th' },
+  G3: { stringIndex: 3, label: '3rd' },
+  B3: { stringIndex: 4, label: '2nd' },
+  E4: { stringIndex: 5, label: '1st (thinnest)' },
+};
+
 export const PROFILE_STEPS = [
-  // Single strings (scored with full harmonic analysis)
-  { id: 'E2', label: '6th String — E2',   type: 'string', hz: 82.41,  instruction: 'Pluck the low E string (6th) and let it ring for 3–5 seconds.' },
+  { id: 'E2', label: '6th String — E2',   type: 'string', hz: 82.41,  instruction: 'Pluck the low E string (6th, thickest) and let it ring for 3–5 seconds.' },
   { id: 'A2', label: '5th String — A2',   type: 'string', hz: 110.00, instruction: 'Pluck the A string (5th) and let it ring for 3–5 seconds.' },
   { id: 'D3', label: '4th String — D3',   type: 'string', hz: 146.83, instruction: 'Pluck the D string (4th) and let it ring for 3–5 seconds.' },
   { id: 'G3', label: '3rd String — G3',   type: 'string', hz: 196.00, instruction: 'Pluck the G string (3rd) and let it ring for 3–5 seconds.' },
   { id: 'B3', label: '2nd String — B3',   type: 'string', hz: 246.94, instruction: 'Pluck the B string (2nd) and let it ring for 3–5 seconds.' },
-  { id: 'E4', label: '1st String — E4',   type: 'string', hz: 329.63, instruction: 'Pluck the high E string (1st) and let it ring for 3–5 seconds.' },
-  // Chords (scored for balance, sustain, dynamic range)
+  { id: 'E4', label: '1st String — E4',   type: 'string', hz: 329.63, instruction: 'Pluck the high E string (1st, thinnest) and let it ring for 3–5 seconds.' },
   { id: 'G',  label: 'G Major Chord',     type: 'chord',  hz: 196.00, instruction: 'Strum an open G major chord and let it ring for 3–5 seconds.' },
   { id: 'C',  label: 'C Major Chord',     type: 'chord',  hz: 130.81, instruction: 'Strum an open C major chord and let it ring for 3–5 seconds.' },
   { id: 'Em', label: 'E Minor Chord',     type: 'chord',  hz: 82.41,  instruction: 'Strum an open E minor chord and let it ring for 3–5 seconds.' },

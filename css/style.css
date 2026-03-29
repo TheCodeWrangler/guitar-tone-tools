@@ -534,7 +534,18 @@ select option { background: var(--bg); color: var(--text); }
 .wizard-step-instruction {
   color: var(--text-dim);
   font-size: 0.9rem;
+  margin-bottom: 0.75rem;
+}
+
+.wizard-diagram {
+  display: flex;
+  justify-content: center;
   margin-bottom: 1rem;
+}
+
+.wizard-diagram canvas {
+  border-radius: var(--radius);
+  background: var(--surface);
 }
 
 .wizard-step-controls {

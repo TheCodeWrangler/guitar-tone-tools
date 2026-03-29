@@ -11,7 +11,7 @@ import {
   drawWaveform, drawFFT, drawBinPowers, drawDamping,
   drawFFTOverlay, drawBinPowerCompare, drawMirrorFFT,
 } from './charts.js';
-import { PROFILE_STEPS, STRING_CATEGORIES, computeProfile } from './profile.js';
+import { PROFILE_STEPS, STRING_CATEGORIES, CHORD_DIAGRAMS, STRING_DIAGRAMS, computeProfile } from './profile.js';
 
 // ── State ──────────────────────────────────────────────────────────────
 
@@ -411,6 +411,146 @@ btnStartProfile.addEventListener('click', () => {
   renderWizardStep();
 });
 
+function drawChordDiagram(canvas, diagram) {
+  const dpr = window.devicePixelRatio || 1;
+  const W = 180, H = 200;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const { frets, fingers, startFret } = diagram;
+  const numStrings = 6;
+  const numFrets = 4;
+  const left = 30, top = 30, right = W - 15, bottom = H - 20;
+  const stringSpacing = (right - left) / (numStrings - 1);
+  const fretSpacing = (bottom - top) / numFrets;
+
+  // Nut (thick bar at top if starting at fret 1)
+  ctx.strokeStyle = '#e2e8f0';
+  ctx.lineWidth = startFret === 1 ? 4 : 1.5;
+  ctx.beginPath();
+  ctx.moveTo(left, top);
+  ctx.lineTo(right, top);
+  ctx.stroke();
+
+  // Fret lines
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = '#64748b';
+  for (let f = 1; f <= numFrets; f++) {
+    const y = top + f * fretSpacing;
+    ctx.beginPath();
+    ctx.moveTo(left, y);
+    ctx.lineTo(right, y);
+    ctx.stroke();
+  }
+
+  // String lines
+  for (let s = 0; s < numStrings; s++) {
+    const x = left + s * stringSpacing;
+    ctx.strokeStyle = s < 3 ? '#94a3b8' : '#cbd5e1';
+    ctx.lineWidth = s < 3 ? 2 : 1.2;
+    ctx.beginPath();
+    ctx.moveTo(x, top);
+    ctx.lineTo(x, bottom);
+    ctx.stroke();
+  }
+
+  // Markers: X, O, or finger dots
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const dotR = stringSpacing * 0.32;
+  for (let s = 0; s < numStrings; s++) {
+    const x = left + s * stringSpacing;
+    const fret = frets[s];
+    const finger = fingers[s];
+
+    if (fret === -1) {
+      ctx.font = '600 13px Inter, sans-serif';
+      ctx.fillStyle = '#ef4444';
+      ctx.fillText('✕', x, top - 14);
+    } else if (fret === 0) {
+      ctx.beginPath();
+      ctx.arc(x, top - 14, 5, 0, Math.PI * 2);
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    } else {
+      const y = top + (fret - 0.5) * fretSpacing;
+      ctx.beginPath();
+      ctx.arc(x, y, dotR, 0, Math.PI * 2);
+      ctx.fillStyle = '#7c3aed';
+      ctx.fill();
+      if (finger) {
+        ctx.font = '600 11px Inter, sans-serif';
+        ctx.fillStyle = '#fff';
+        ctx.fillText(finger, x, y);
+      }
+    }
+  }
+
+  // String labels at bottom
+  const labels = ['E', 'A', 'D', 'G', 'B', 'e'];
+  ctx.font = '500 10px Inter, sans-serif';
+  ctx.fillStyle = '#94a3b8';
+  for (let s = 0; s < numStrings; s++) {
+    ctx.fillText(labels[s], left + s * stringSpacing, bottom + 12);
+  }
+}
+
+function drawStringDiagram(canvas, stringIndex) {
+  const dpr = window.devicePixelRatio || 1;
+  const W = 180, H = 80;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const left = 15, right = W - 15, cy = H / 2;
+  const spacing = (right - left) / 5;
+  const labels = ['E', 'A', 'D', 'G', 'B', 'e'];
+  const thicknesses = [3.5, 3, 2.5, 2, 1.5, 1.2];
+
+  for (let s = 0; s < 6; s++) {
+    const x = left + s * spacing;
+    const isTarget = s === stringIndex;
+    // String line (horizontal, like looking down at the neck)
+    ctx.strokeStyle = isTarget ? '#7c3aed' : '#475569';
+    ctx.lineWidth = thicknesses[s];
+    ctx.beginPath();
+    ctx.moveTo(left - 5, cy - 25 + s * 10);
+    ctx.lineTo(right + 5, cy - 25 + s * 10);
+    ctx.stroke();
+
+    if (isTarget) {
+      // Arrow pointer
+      ctx.fillStyle = '#7c3aed';
+      ctx.beginPath();
+      const y = cy - 25 + s * 10;
+      ctx.arc(right + 14, y, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.font = '700 11px Inter, sans-serif';
+      ctx.fillStyle = '#e2e8f0';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('← play this one', right + 22, y);
+    }
+  }
+
+  // Labels on left
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  ctx.font = '500 10px Inter, sans-serif';
+  for (let s = 0; s < 6; s++) {
+    ctx.fillStyle = s === stringIndex ? '#c4b5fd' : '#64748b';
+    ctx.fillText(labels[s], left - 10, cy - 25 + s * 10);
+  }
+}
+
 function renderWizardStep(autoRecord = false) {
   const step = PROFILE_STEPS[profileCurrentStep];
   const total = PROFILE_STEPS.length;
@@ -426,6 +566,7 @@ function renderWizardStep(autoRecord = false) {
     <div class="wizard-step">
       <h3 class="wizard-step-label">${step.label}</h3>
       <p class="wizard-step-instruction">${step.instruction}</p>
+      <div class="wizard-diagram"><canvas id="wiz-diagram"></canvas></div>
       <div class="wizard-step-controls">
         <button id="wiz-record" class="btn primary">Record</button>
         <button id="wiz-rerecord" class="btn hidden">Re-record</button>
@@ -453,6 +594,14 @@ function renderWizardStep(autoRecord = false) {
   const wizLevelFill  = wizLevel.querySelector('.level-meter-fill');
   const wizLevelLabel = wizLevel.querySelector('.level-meter-label');
   let stepAnalysis = null;
+
+  // Draw the fingering diagram
+  const diagCanvas = $('#wiz-diagram');
+  if (step.type === 'chord' && CHORD_DIAGRAMS[step.id]) {
+    drawChordDiagram(diagCanvas, CHORD_DIAGRAMS[step.id]);
+  } else if (step.type === 'string' && STRING_DIAGRAMS[step.id]) {
+    drawStringDiagram(diagCanvas, STRING_DIAGRAMS[step.id].stringIndex);
+  }
 
   async function wizProcessRecording() {
     wizRecord.textContent = 'Record';
