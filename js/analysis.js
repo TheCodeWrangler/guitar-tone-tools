@@ -137,8 +137,8 @@ function computeFFTFast(samples, sampleRate) {
 // ── Core Analysis ──────────────────────────────────────────────────────
 
 function detectFundamental(samples, sampleRate) {
-  // Autocorrelation on a short window (first 0.1s after onset) for speed
-  const maxSamples = Math.min(samples.length, Math.floor(sampleRate * 0.15));
+  // Use a longer window for better low-frequency resolution
+  const maxSamples = Math.min(samples.length, Math.floor(sampleRate * 0.3));
 
   // Find onset: first sample exceeding 10% of peak amplitude
   const peak = arrayMax(samples.subarray(0, Math.min(samples.length, sampleRate)));
@@ -147,15 +147,17 @@ function detectFundamental(samples, sampleRate) {
     if (Math.abs(samples[i]) > peak * 0.1) { onset = i; break; }
   }
 
-  const windowSize = Math.min(Math.floor(sampleRate * 0.08), samples.length - onset);
+  // 150ms window gives ~12 cycles at 82 Hz (low E) — enough for reliable detection
+  const windowSize = Math.min(Math.floor(sampleRate * 0.15), samples.length - onset);
   const buf = samples.subarray(onset, onset + windowSize);
   const N = buf.length;
 
+  // Guitar range: ~70 Hz (drop D) to ~1200 Hz (high frets)
   const minPeriod = Math.floor(sampleRate / 1200);
   const maxPeriod = Math.min(Math.floor(sampleRate / 50), Math.floor(N / 2));
-  let bestCorr = -1;
-  let bestPeriod = minPeriod;
-
+  
+  // Compute normalized autocorrelation for all candidate periods
+  const correlations = new Float32Array(maxPeriod);
   for (let period = minPeriod; period < maxPeriod; period++) {
     let corr = 0, norm1 = 0, norm2 = 0;
     for (let i = 0; i < N - period; i++) {
@@ -164,12 +166,56 @@ function detectFundamental(samples, sampleRate) {
       norm2 += buf[i + period] * buf[i + period];
     }
     const normFactor = Math.sqrt(norm1 * norm2) || 1;
-    const normalized = corr / normFactor;
-    if (normalized > bestCorr) {
-      bestCorr = normalized;
+    correlations[period] = corr / normFactor;
+  }
+
+  // Find the best correlation peak
+  let bestCorr = -1;
+  let bestPeriod = minPeriod;
+  for (let period = minPeriod; period < maxPeriod; period++) {
+    if (correlations[period] > bestCorr) {
+      bestCorr = correlations[period];
       bestPeriod = period;
     }
   }
+
+  // Octave correction: autocorrelation often locks onto the 2nd harmonic.
+  // Check if double the period (half the frequency / one octave lower) has
+  // a reasonably strong correlation — if so, prefer it as the true fundamental.
+  const subOctavePeriod = bestPeriod * 2;
+  if (subOctavePeriod < maxPeriod) {
+    // Search a small window around the expected sub-octave period
+    const searchLo = Math.max(minPeriod, subOctavePeriod - 4);
+    const searchHi = Math.min(maxPeriod - 1, subOctavePeriod + 4);
+    let subBestCorr = -1;
+    let subBestPeriod = subOctavePeriod;
+    for (let p = searchLo; p <= searchHi; p++) {
+      if (correlations[p] > subBestCorr) {
+        subBestCorr = correlations[p];
+        subBestPeriod = p;
+      }
+    }
+    // Accept the sub-octave if its correlation is at least 70% of the best
+    if (subBestCorr > bestCorr * 0.70) {
+      bestPeriod = subBestPeriod;
+      bestCorr = subBestCorr;
+      
+      // Check one more octave down (for cases where it locked onto 3rd/4th harmonic)
+      const subSubPeriod = bestPeriod * 2;
+      if (subSubPeriod < maxPeriod) {
+        const lo2 = Math.max(minPeriod, subSubPeriod - 4);
+        const hi2 = Math.min(maxPeriod - 1, subSubPeriod + 4);
+        let ss = -1, sp = subSubPeriod;
+        for (let p = lo2; p <= hi2; p++) {
+          if (correlations[p] > ss) { ss = correlations[p]; sp = p; }
+        }
+        if (ss > bestCorr * 0.65) {
+          bestPeriod = sp;
+        }
+      }
+    }
+  }
+
   return sampleRate / bestPeriod;
 }
 
