@@ -49,17 +49,22 @@ export async function openMic(opts = {}) {
       echoCancellation: false,
       noiseSuppression: false,
       autoGainControl: false,
-      sampleRate: 44100,
     },
   });
 
   audioCtx = new AudioContext({ sampleRate: 44100 });
+
+  // Mobile browsers start AudioContext in 'suspended' state due to autoplay
+  // policy — must explicitly resume even after a user gesture.
+  if (audioCtx.state === 'suspended') {
+    await audioCtx.resume();
+  }
+
   sourceNode = audioCtx.createMediaStreamSource(stream);
   analyser = audioCtx.createAnalyser();
   analyser.fftSize = 2048;
   sourceNode.connect(analyser);
 
-  // Prepare MediaRecorder (not started yet)
   mediaRecorder = new MediaRecorder(stream, { mimeType: getSupportedMime() });
   audioChunks = [];
   mediaRecorder.ondataavailable = (e) => {
@@ -74,6 +79,11 @@ export async function openMic(opts = {}) {
 
 function monitorLoop() {
   if (state === 'idle' || state === 'done') return;
+
+  // Re-check context state — mobile browsers can suspend it unexpectedly
+  if (audioCtx && audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
 
   const buf = new Float32Array(analyser.fftSize);
   analyser.getFloatTimeDomainData(buf);
@@ -145,6 +155,7 @@ export function finishRecording() {
         const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
         const arrayBuf = await blob.arrayBuffer();
         const decodeCtx = new AudioContext({ sampleRate: 44100 });
+        if (decodeCtx.state === 'suspended') await decodeCtx.resume();
         const audioBuffer = await decodeCtx.decodeAudioData(arrayBuf);
         resolve({ audioBuffer, blob });
       } catch (e) {
@@ -181,6 +192,7 @@ export function closeMic() {
 export async function loadAudioFile(file) {
   const arrayBuf = await file.arrayBuffer();
   const ctx = new AudioContext({ sampleRate: 44100 });
+  if (ctx.state === 'suspended') await ctx.resume();
   const audioBuffer = await ctx.decodeAudioData(arrayBuf);
   return { audioBuffer, blob: file };
 }
