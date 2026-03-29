@@ -747,7 +747,7 @@ function finishProfile() {
     wizardContent.classList.add('hidden');
     wizardContent.innerHTML = '';
     profileReport.classList.remove('hidden');
-    renderProfileReport(profile, name, profileReport);
+    renderProfileReport(profile, name, profileReport, entry.id);
 
     btnStartProfile.disabled = false;
     profileNameInput.disabled = false;
@@ -765,7 +765,7 @@ function finishProfile() {
 
 // ── Profile Report ─────────────────────────────────────────────────────
 
-function renderProfileReport(profile, name, container) {
+function renderProfileReport(profile, name, container, entryId) {
   const { overall, stringScores, chordScores, categoryScores, strengths, weaknesses, stepResults } = profile;
   const grade = scoreGrade(overall.overall);
   const overallColor = overall.overall >= 75 ? 'var(--green)' : overall.overall >= 50 ? 'var(--amber)' : 'var(--danger)';
@@ -823,8 +823,9 @@ function renderProfileReport(profile, name, container) {
     html += renderScoreCard(chordScores);
   }
 
-  // Individual step results (expandable)
+  // Individual step results (expandable + re-record)
   html += `<h3 class="subsection-title">Individual Step Results</h3>`;
+  html += `<p class="hint" style="padding:0 0 0.5rem;text-align:left;font-size:0.8rem">Tap a step to see details. Use Re-record to replace any step and regenerate the profile.</p>`;
   html += `<div class="profile-steps-list">`;
   stepResults.forEach((r, i) => {
     const step = PROFILE_STEPS.find(s => s.id === r.stepId);
@@ -838,9 +839,11 @@ function renderProfileReport(profile, name, container) {
         <span class="profile-step-num">${i + 1}</span>
         <span class="profile-step-name">${step ? step.label : r.stepId}</span>
         <span class="profile-step-score" style="color:${stepColor}">${stepScore}/100 ${stepGrade}</span>
+        <button class="btn small rerecord-btn" data-step-idx="${i}" data-step-id="${r.stepId}">Re-record</button>
         <span class="profile-step-toggle">▸</span>
       </div>
       <div class="profile-step-detail hidden" id="profile-step-detail-${i}"></div>
+      <div class="rerecord-panel hidden" id="rerecord-panel-${i}"></div>
     </div>`;
   });
   html += `</div>`;
@@ -884,7 +887,8 @@ function renderProfileReport(profile, name, container) {
 
   // Wire up expand/collapse and render charts lazily
   container.querySelectorAll('.profile-step-header').forEach(header => {
-    header.addEventListener('click', () => {
+    header.addEventListener('click', (e) => {
+      if (e.target.closest('.rerecord-btn')) return;
       const targetId = header.dataset.toggle;
       const detail = container.querySelector(`#${targetId}`);
       const toggle = header.querySelector('.profile-step-toggle');
@@ -903,6 +907,136 @@ function renderProfileReport(profile, name, container) {
       }
     });
   });
+
+  // Wire re-record buttons
+  container.querySelectorAll('.rerecord-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const idx = parseInt(btn.dataset.stepIdx, 10);
+      const stepId = btn.dataset.stepId;
+      const panel = container.querySelector(`#rerecord-panel-${idx}`);
+      if (!panel.classList.contains('hidden')) {
+        panel.classList.add('hidden');
+        panel.innerHTML = '';
+        closeMic();
+        return;
+      }
+      openRerecordPanel(panel, idx, stepId, profile, name, container, entryId);
+    });
+  });
+}
+
+function openRerecordPanel(panel, stepIdx, stepId, profile, name, reportContainer, entryId) {
+  const step = PROFILE_STEPS.find(s => s.id === stepId);
+  panel.classList.remove('hidden');
+  panel.innerHTML = `
+    <div class="rerecord-content">
+      <p class="rerecord-instruction">${step ? step.instruction : 'Record this step again.'}</p>
+      ${step && step.type === 'chord' && CHORD_DIAGRAMS[step.id] ? '<div class="wizard-diagram"><canvas class="rr-diagram"></canvas></div>' : ''}
+      ${step && step.type === 'string' && STRING_DIAGRAMS[step.id] ? '<div class="wizard-diagram"><canvas class="rr-diagram"></canvas></div>' : ''}
+      <div class="rerecord-controls">
+        <button class="btn primary rr-record">Record</button>
+        <button class="btn rr-cancel">Cancel</button>
+      </div>
+      <div class="level-meter hidden rr-level"><div class="level-meter-fill"></div><span class="level-meter-label"></span></div>
+      <div class="rr-status"></div>
+    </div>`;
+
+  // Draw diagram if present
+  const diagCanvas = panel.querySelector('.rr-diagram');
+  if (diagCanvas && step) {
+    if (step.type === 'chord' && CHORD_DIAGRAMS[step.id]) {
+      drawChordDiagram(diagCanvas, CHORD_DIAGRAMS[step.id]);
+    } else if (step.type === 'string' && STRING_DIAGRAMS[step.id]) {
+      drawStringDiagram(diagCanvas, STRING_DIAGRAMS[step.id].stringIndex);
+    }
+  }
+
+  const btnRec = panel.querySelector('.rr-record');
+  const btnCancel = panel.querySelector('.rr-cancel');
+  const rrLevel = panel.querySelector('.rr-level');
+  const rrFill = rrLevel.querySelector('.level-meter-fill');
+  const rrLabel = rrLevel.querySelector('.level-meter-label');
+  const rrStatus = panel.querySelector('.rr-status');
+
+  btnCancel.addEventListener('click', () => {
+    closeMic();
+    panel.classList.add('hidden');
+    panel.innerHTML = '';
+  });
+
+  async function processRerecording() {
+    btnRec.textContent = 'Record';
+    btnRec.classList.remove('recording');
+    rrLevel.classList.add('hidden');
+    rrStatus.textContent = 'Processing…';
+    try {
+      const { audioBuffer } = await finishRecording();
+      closeMic();
+      rrStatus.textContent = 'Analyzing…';
+      await new Promise(r => setTimeout(r, 50));
+      const newAnalysis = analyzeAudio(audioBuffer);
+      newAnalysis.detectedNote = hzToNote(newAnalysis.fundamental);
+      newAnalysis.scores = computeScores(newAnalysis);
+      newAnalysis.name = `${name} — ${step ? step.label : stepId}`;
+
+      // Replace step in profile
+      profile.stepResults[stepIdx] = { stepId, analysis: newAnalysis };
+
+      // Recompute profile scores
+      const recomputed = computeProfile(profile.stepResults);
+      Object.assign(profile, recomputed);
+
+      // Update in profiles array and save
+      if (entryId) {
+        const entry = profiles.find(p => p.id === entryId);
+        if (entry) {
+          entry.profile = profile;
+          entry.timestamp = new Date().toISOString();
+          try { saveProfiles(); } catch (e) { console.warn('Save failed:', e); }
+        }
+      }
+
+      // Re-render the entire report
+      renderProfileReport(profile, name, reportContainer, entryId);
+      setTimeout(() => reportContainer.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+    } catch (err) {
+      closeMic();
+      rrStatus.textContent = `Error: ${err.message}`;
+      console.error(err);
+    }
+  }
+
+  btnRec.addEventListener('click', async () => {
+    const recState = getState();
+    if (recState === 'listening' || recState === 'recording') {
+      manualStop();
+      await processRerecording();
+    } else {
+      try {
+        rrLevel.classList.remove('hidden');
+        await openMic({
+          onLevel(rms, st) {
+            const pct = Math.min(rms / 0.15, 1) * 100;
+            rrFill.style.width = `${pct}%`;
+            rrFill.className = 'level-meter-fill' + (st === 'recording' ? ' active' : '');
+            rrLabel.textContent = st === 'listening' ? 'Waiting for sound…' : 'Recording…';
+          },
+          async onAutoStop() {
+            await processRerecording();
+          },
+        });
+        btnRec.textContent = 'Stop';
+        btnRec.classList.add('recording');
+        rrStatus.textContent = 'Listening — play when ready…';
+      } catch (err) {
+        rrStatus.textContent = 'Mic access denied.';
+        rrLevel.classList.add('hidden');
+      }
+    }
+  });
+
+  panel.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 // ── Clipboard helper ──────────────────────────────────────────────────
@@ -1814,7 +1948,7 @@ $('#library-content').addEventListener('click', (e) => {
     detail.classList.remove('hidden');
     const p = profiles.find(p => p.id === id);
     if (p && !detail.dataset.rendered) {
-      renderProfileReport(p.profile, p.name, detail);
+      renderProfileReport(p.profile, p.name, detail, p.id);
       detail.dataset.rendered = 'true';
     }
   }
