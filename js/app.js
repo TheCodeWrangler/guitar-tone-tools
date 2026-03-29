@@ -11,6 +11,7 @@ import {
   drawWaveform, drawFFT, drawBinPowers, drawDamping,
   drawFFTOverlay, drawBinPowerCompare, drawMirrorFFT,
   drawSpectrogram, drawHarmonicDecay,
+  drawDecayRateCompare, drawHarmonicDecayCompare,
 } from './charts.js';
 import { PROFILE_STEPS, STRING_CATEGORIES, CHORD_DIAGRAMS, STRING_DIAGRAMS, CHORD_NOTES, computeProfile } from './profile.js';
 
@@ -1966,6 +1967,12 @@ function renderComparison(analyses, container, refFreqs = null) {
 
   if (analyses.length === 2) {
     chartDefs.push((c) => drawMirrorFFT(c, analyses[0], analyses[1]));
+  }
+
+  const hasDecay = analyses.filter(a => a.harmonicDecay && a.harmonicDecay.harmonics && a.harmonicDecay.harmonics.length).length >= 2;
+  if (hasDecay) {
+    chartDefs.push((c) => drawDecayRateCompare(c, analyses));
+    chartDefs.push((c) => drawHarmonicDecayCompare(c, analyses));
   }
 
   for (const draw of chartDefs) {

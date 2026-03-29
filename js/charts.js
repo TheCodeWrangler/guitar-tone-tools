@@ -463,6 +463,228 @@ export function drawBinPowerCompare(canvas, analyses) {
   });
 }
 
+// ── Harmonic Decay Comparison Charts ──────────────────────────────────
+
+export function drawDecayRateCompare(canvas, analyses) {
+  const valid = analyses.filter(a => a.harmonicDecay && a.harmonicDecay.harmonics && a.harmonicDecay.harmonics.length);
+  if (valid.length < 2) return;
+  const { ctx, w, h } = setupCanvas(canvas, 'Harmonic Decay Rate Comparison');
+  const tc = themeColors();
+  const top = 36, bot = 44;
+  const plotH = h - top - bot;
+  const plotW = w - 60;
+  const ox = 50;
+
+  const maxH = Math.max(...valid.map(a => a.harmonicDecay.harmonics.length));
+  const labels = [];
+  for (let i = 0; i < maxH; i++) labels.push(i === 0 ? 'Fund.' : `${i + 1}×`);
+
+  const n = valid.length;
+  const groupW = plotW / labels.length;
+  const barW = Math.min((groupW - 6) / n, 24);
+
+  let maxRate = 1;
+  for (const a of valid) {
+    for (const harm of a.harmonicDecay.harmonics) {
+      if (harm.decayRate && harm.decayRate > maxRate) maxRate = harm.decayRate;
+    }
+  }
+
+  ctx.strokeStyle = tc.axis;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(ox, top);
+  ctx.lineTo(ox, top + plotH);
+  ctx.lineTo(ox + plotW, top + plotH);
+  ctx.stroke();
+
+  // Y grid
+  const yStep = maxRate <= 5 ? 1 : maxRate <= 20 ? 5 : 10;
+  for (let v = 0; v <= maxRate; v += yStep) {
+    const y = top + plotH - (v / maxRate) * plotH;
+    ctx.strokeStyle = tc.grid;
+    ctx.lineWidth = 0.4;
+    ctx.beginPath();
+    ctx.moveTo(ox, y);
+    ctx.lineTo(ox + plotW, y);
+    ctx.stroke();
+    ctx.fillStyle = tc.label;
+    ctx.font = '9px Inter, system-ui, sans-serif';
+    ctx.fillText(v.toFixed(v < 1 ? 1 : 0), ox - 24, y + 3);
+  }
+
+  labels.forEach((label, li) => {
+    valid.forEach((a, ci) => {
+      const harm = a.harmonicDecay.harmonics[li];
+      const rate = harm && harm.decayRate && harm.decayRate > 0 ? harm.decayRate : 0;
+      const x = ox + li * groupW + (groupW - n * barW) / 2 + ci * barW;
+      const barH = (rate / maxRate) * plotH;
+      ctx.fillStyle = COLORS[ci % COLORS.length];
+      ctx.globalAlpha = 0.85;
+      ctx.fillRect(x, top + plotH - barH, barW - 1, barH);
+      ctx.globalAlpha = 1;
+    });
+
+    ctx.fillStyle = tc.label;
+    ctx.font = '9px Inter, system-ui, sans-serif';
+    const lw = ctx.measureText(label).width;
+    ctx.fillText(label, ox + li * groupW + groupW / 2 - lw / 2, top + plotH + 13);
+  });
+
+  // Y label
+  ctx.save();
+  ctx.translate(10, top + plotH / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillStyle = tc.label;
+  ctx.font = '10px Inter, system-ui, sans-serif';
+  ctx.fillText('Decay rate (1/s)', -35, 0);
+  ctx.restore();
+
+  // Legend
+  const legendY = h - 4;
+  let legendX = ox;
+  ctx.font = '10px Inter, system-ui, sans-serif';
+  valid.forEach((a, ci) => {
+    ctx.fillStyle = COLORS[ci % COLORS.length];
+    ctx.fillRect(legendX, legendY - 8, 10, 10);
+    ctx.fillStyle = tc.text;
+    ctx.fillText(a.name, legendX + 14, legendY);
+    legendX += ctx.measureText(a.name).width + 28;
+  });
+}
+
+export function drawHarmonicDecayCompare(canvas, analyses) {
+  const valid = analyses.filter(a => a.harmonicDecay && a.harmonicDecay.harmonics && a.harmonicDecay.harmonics.length);
+  if (valid.length < 2) return;
+  const { ctx, w, h } = setupCanvas(canvas, 'Fundamental & Harmonic Sustain Comparison');
+  const tc = themeColors();
+  const top = 36, bot = 42;
+  const plotH = h - top - bot;
+  const plotW = w - 56;
+  const ox = 48;
+
+  let maxT = 0;
+  let globalPeak = 0;
+  for (const a of valid) {
+    const hd = a.harmonicDecay;
+    const t = hd.times[hd.times.length - 1];
+    if (t > maxT) maxT = t;
+    for (const harm of hd.harmonics) {
+      for (const v of harm.amplitudes) { if (v > globalPeak) globalPeak = v; }
+    }
+  }
+  if (maxT === 0) maxT = 1;
+  if (globalPeak === 0) globalPeak = 1;
+
+  const dbFloor = -50;
+
+  // Axes
+  ctx.strokeStyle = tc.axis;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(ox, top);
+  ctx.lineTo(ox, top + plotH);
+  ctx.lineTo(ox + plotW, top + plotH);
+  ctx.stroke();
+
+  // dB grid
+  for (let db = 0; db >= dbFloor; db -= 10) {
+    const y = top + plotH * (-db / -dbFloor);
+    ctx.strokeStyle = tc.grid;
+    ctx.lineWidth = 0.4;
+    ctx.beginPath();
+    ctx.moveTo(ox, y);
+    ctx.lineTo(ox + plotW, y);
+    ctx.stroke();
+    ctx.fillStyle = tc.label;
+    ctx.font = '9px Inter, system-ui, sans-serif';
+    ctx.fillText(`${db}`, ox - 26, y + 3);
+  }
+
+  // Draw only fundamental (h=1) and 2nd harmonic for each guitar — keeps it readable
+  const showHarmonics = [0, 1];
+  const lineStyles = [[], [6, 4]];
+
+  valid.forEach((a, gi) => {
+    const hd = a.harmonicDecay;
+    const baseColor = COLORS[gi % COLORS.length];
+
+    showHarmonics.forEach((hi, si) => {
+      if (hi >= hd.harmonics.length) return;
+      const harm = hd.harmonics[hi];
+      const alpha = hi === 0 ? 1.0 : 0.6;
+      ctx.strokeStyle = baseColor;
+      ctx.globalAlpha = alpha;
+      ctx.lineWidth = hi === 0 ? 2 : 1.2;
+      ctx.setLineDash(lineStyles[si]);
+      ctx.beginPath();
+      let started = false;
+      for (let i = 0; i < harm.amplitudes.length; i++) {
+        const x = ox + (hd.times[i] / maxT) * plotW;
+        const mag = harm.amplitudes[i];
+        const db = mag > 0 ? 20 * Math.log10(mag / globalPeak) : dbFloor;
+        const clamped = Math.max(db, dbFloor);
+        const y = top + plotH * (-clamped / -dbFloor);
+        if (!started) { ctx.moveTo(x, y); started = true; }
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+    });
+  });
+
+  // Time ticks
+  ctx.fillStyle = tc.label;
+  ctx.font = '9px Inter, system-ui, sans-serif';
+  const tStep = maxT <= 2 ? 0.5 : maxT <= 4 ? 1 : 2;
+  for (let t = 0; t <= maxT; t += tStep) {
+    const x = ox + (t / maxT) * plotW;
+    ctx.fillText(t.toFixed(1) + 's', x - 8, top + plotH + 13);
+  }
+
+  // Y-axis label
+  ctx.save();
+  ctx.translate(10, top + plotH / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillStyle = tc.label;
+  ctx.font = '10px Inter, system-ui, sans-serif';
+  ctx.fillText('dB', -6, 0);
+  ctx.restore();
+
+  // Legend
+  const legendY = h - 4;
+  let legendX = ox;
+  ctx.font = '9px Inter, system-ui, sans-serif';
+  valid.forEach((a, gi) => {
+    const color = COLORS[gi % COLORS.length];
+
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(legendX, legendY - 3);
+    ctx.lineTo(legendX + 14, legendY - 3);
+    ctx.stroke();
+    ctx.fillStyle = tc.text;
+    ctx.fillText(a.name + ' (fund.)', legendX + 18, legendY);
+    legendX += ctx.measureText(a.name + ' (fund.)').width + 28;
+
+    ctx.strokeStyle = color;
+    ctx.globalAlpha = 0.6;
+    ctx.lineWidth = 1.2;
+    ctx.setLineDash([6, 4]);
+    ctx.beginPath();
+    ctx.moveTo(legendX, legendY - 3);
+    ctx.lineTo(legendX + 14, legendY - 3);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = tc.text;
+    ctx.fillText('2×', legendX + 18, legendY);
+    legendX += ctx.measureText('2×').width + 28;
+  });
+}
+
 // ── Spectrogram ───────────────────────────────────────────────────────
 
 const SPEC_STOPS = [
