@@ -274,6 +274,143 @@ function computeDamping(samples, sampleRate) {
 }
 
 
+// ── STFT (Short-Time Fourier Transform) ───────────────────────────────
+
+function computeSTFT(samples, sampleRate) {
+  const windowSize = 2048;
+  const hopSize = 1024;
+  const maxN = Math.min(samples.length, Math.floor(sampleRate * 5));
+  const win = hann(windowSize);
+  const numFrames = Math.max(1, Math.floor((maxN - windowSize) / hopSize) + 1);
+  const fftSize = windowSize;
+  const numBins = fftSize >> 1;
+  const freqStep = sampleRate / fftSize;
+
+  const times = new Float32Array(numFrames);
+  const frequencies = new Float32Array(numBins);
+  for (let k = 0; k < numBins; k++) frequencies[k] = k * freqStep;
+
+  const matrix = new Array(numFrames);
+
+  for (let frame = 0; frame < numFrames; frame++) {
+    const start = frame * hopSize;
+    times[frame] = (start + windowSize / 2) / sampleRate;
+
+    const re = new Float32Array(fftSize);
+    const im = new Float32Array(fftSize);
+    const end = Math.min(start + windowSize, maxN);
+    for (let i = start; i < end; i++) re[i - start] = samples[i] * win[i - start];
+
+    fftRadix2(re, im);
+
+    const frameMags = new Float32Array(numBins);
+    for (let k = 0; k < numBins; k++) {
+      frameMags[k] = Math.sqrt(re[k] * re[k] + im[k] * im[k]) / windowSize;
+    }
+    matrix[frame] = frameMags;
+  }
+
+  return { times, frequencies, matrix, numBins };
+}
+
+function downsampleSTFT(stft, maxFrames, maxFreqHz, maxBins) {
+  const { times, frequencies, matrix, numBins } = stft;
+
+  let freqCutoff = numBins;
+  for (let i = 0; i < numBins; i++) {
+    if (frequencies[i] > maxFreqHz) { freqCutoff = i; break; }
+  }
+
+  const frameStep = Math.max(1, Math.ceil(times.length / maxFrames));
+  const binStep = Math.max(1, Math.ceil(freqCutoff / maxBins));
+
+  const outTimes = [];
+  const outFrameIdx = [];
+  for (let t = 0; t < times.length; t += frameStep) {
+    outTimes.push(Math.round(times[t] * 1000) / 1000);
+    outFrameIdx.push(t);
+  }
+
+  const outFreqs = [];
+  const outBinIdx = [];
+  for (let i = 0; i < freqCutoff; i += binStep) {
+    outFreqs.push(Math.round(frequencies[i] * 10) / 10);
+    outBinIdx.push(i);
+  }
+
+  const actualBins = outBinIdx.length;
+  const data = new Array(outFrameIdx.length * actualBins);
+  let idx = 0;
+  for (const fi of outFrameIdx) {
+    for (const bi of outBinIdx) {
+      data[idx++] = matrix[fi][bi];
+    }
+  }
+
+  return { times: outTimes, frequencies: outFreqs, numBins: actualBins, data };
+}
+
+// ── Harmonic Decay Tracking ───────────────────────────────────────────
+
+function trackHarmonicDecay(stft, fundamental) {
+  if (!fundamental || fundamental < 20) return null;
+
+  const { times, frequencies, matrix } = stft;
+  const maxHarmonics = 8;
+  const tolerance = 0.05;
+  const harmonics = [];
+
+  for (let h = 1; h <= maxHarmonics; h++) {
+    const targetHz = fundamental * h;
+    if (targetHz > 5000) break;
+    const loHz = targetHz * (1 - tolerance);
+    const hiHz = targetHz * (1 + tolerance);
+
+    const amplitudes = new Float32Array(times.length);
+    for (let t = 0; t < times.length; t++) {
+      let maxMag = 0;
+      for (let i = 0; i < frequencies.length; i++) {
+        if (frequencies[i] >= loHz && frequencies[i] <= hiHz && matrix[t][i] > maxMag) {
+          maxMag = matrix[t][i];
+        }
+      }
+      amplitudes[t] = maxMag;
+    }
+
+    let peakVal = 0, peakIdx = 0;
+    for (let i = 0; i < amplitudes.length; i++) {
+      if (amplitudes[i] > peakVal) { peakVal = amplitudes[i]; peakIdx = i; }
+    }
+
+    let decayRate = null;
+    if (peakVal > 0 && peakIdx < amplitudes.length - 3) {
+      const xs = [], ys = [];
+      for (let i = peakIdx; i < amplitudes.length; i++) {
+        if (amplitudes[i] > peakVal * 0.01) {
+          xs.push(times[i] - times[peakIdx]);
+          ys.push(Math.log(amplitudes[i]));
+        }
+      }
+      if (xs.length >= 3) {
+        let sx = 0, sy = 0, sxx = 0, sxy = 0;
+        const n = xs.length;
+        for (let i = 0; i < n; i++) { sx += xs[i]; sy += ys[i]; sxx += xs[i] * xs[i]; sxy += xs[i] * ys[i]; }
+        const slope = (n * sxy - sx * sy) / (n * sxx - sx * sx);
+        decayRate = Math.round(-slope * 1000) / 1000;
+      }
+    }
+
+    harmonics.push({
+      harmonic: h,
+      hz: Math.round(targetHz * 100) / 100,
+      decayRate,
+      amplitudes: Array.from(amplitudes),
+    });
+  }
+
+  return { times: Array.from(times), harmonics };
+}
+
 // ── Public API ─────────────────────────────────────────────────────────
 
 export function analyzeAudio(audioBuffer) {
@@ -288,7 +425,10 @@ export function analyzeAudio(audioBuffer) {
   const binPowers = computeBinPowers(frequencies, magnitudes);
   const { dampingFactor, envelope, times } = computeDamping(samples, sr);
 
-  // Thin the waveform for display/storage — keep at most 20k points
+  const stftFull = computeSTFT(samples, sr);
+  const stft = downsampleSTFT(stftFull, 80, 5000, 128);
+  const harmonicDecay = trackHarmonicDecay(stftFull, fundamental);
+
   const displayStep = Math.max(1, Math.floor(samples.length / 20000));
   const displaySamples = new Float32Array(Math.ceil(samples.length / displayStep));
   for (let i = 0, j = 0; i < samples.length; i += displayStep, j++) {
@@ -305,6 +445,8 @@ export function analyzeAudio(audioBuffer) {
     fft: { frequencies, magnitudes },
     waveform: { samples: displaySamples, sr: Math.round(sr / displayStep) },
     damping: { envelope, times },
+    stft,
+    harmonicDecay,
   };
 }
 

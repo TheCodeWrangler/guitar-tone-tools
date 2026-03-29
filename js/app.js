@@ -10,6 +10,7 @@ import {
 import {
   drawWaveform, drawFFT, drawBinPowers, drawDamping,
   drawFFTOverlay, drawBinPowerCompare, drawMirrorFFT,
+  drawSpectrogram, drawHarmonicDecay,
 } from './charts.js';
 import { PROFILE_STEPS, STRING_CATEGORIES, CHORD_DIAGRAMS, STRING_DIAGRAMS, CHORD_NOTES, computeProfile } from './profile.js';
 
@@ -157,6 +158,41 @@ function downsampleFFT(freqs, mags, maxFreq, maxBins) {
   return { frequencies: outF, magnitudes: outM };
 }
 
+function serialiseHarmonicDecay(hd, maxPoints) {
+  if (!hd) return null;
+  const step = maxPoints ? Math.max(1, Math.ceil(hd.times.length / maxPoints)) : 1;
+  const times = [];
+  for (let i = 0; i < hd.times.length; i += step) times.push(hd.times[i]);
+  return {
+    times,
+    harmonics: hd.harmonics.map(h => ({
+      harmonic: h.harmonic,
+      hz: h.hz,
+      decayRate: h.decayRate,
+      amplitudes: times.map((_, ti) => h.amplitudes[ti * step] ?? 0),
+    })),
+  };
+}
+
+function serialiseSTFT(stft, maxFrames, maxBins) {
+  if (!stft) return null;
+  const { times, frequencies, numBins, data } = stft;
+  const frameStep = Math.max(1, Math.ceil(times.length / maxFrames));
+  const binStep = Math.max(1, Math.ceil(numBins / maxBins));
+  const outTimes = [];
+  for (let t = 0; t < times.length; t += frameStep) outTimes.push(times[t]);
+  const outFreqs = [];
+  for (let b = 0; b < numBins; b += binStep) outFreqs.push(frequencies[b]);
+  const actualBins = outFreqs.length;
+  const outData = [];
+  for (let t = 0; t < times.length; t += frameStep) {
+    for (let b = 0; b < numBins; b += binStep) {
+      outData.push(data[t * numBins + b]);
+    }
+  }
+  return { times: outTimes, frequencies: outFreqs, numBins: actualBins, data: outData };
+}
+
 function serialiseAnalysisCompact(a) {
   if (!a) return a;
   const fft = downsampleFFT(a.fft?.frequencies, a.fft?.magnitudes, 6000, 512);
@@ -174,6 +210,8 @@ function serialiseAnalysisCompact(a) {
       envelope: Array.from((a.damping?.envelope || []).slice(0, 100)),
       times: Array.from((a.damping?.times || []).slice(0, 100)),
     },
+    stft: serialiseSTFT(a.stft, 40, 64),
+    harmonicDecay: serialiseHarmonicDecay(a.harmonicDecay, 40),
   };
 }
 
@@ -191,6 +229,8 @@ function serialiseAnalysis(a) {
       envelope: Array.from(a.damping.envelope),
       times: Array.from(a.damping.times),
     },
+    stft: serialiseSTFT(a.stft, 80, 128),
+    harmonicDecay: serialiseHarmonicDecay(a.harmonicDecay),
   };
 }
 
@@ -482,12 +522,23 @@ function renderSingleAnalysis(a) {
     (c) => drawBinPowers(c, a.binPowers, `${a.name} — Bin Power`),
     (c) => drawDamping(c, a.damping.envelope, a.damping.times, `${a.name} — Amplitude Decay`),
   ];
-
   for (const draw of charts) {
     const canvas = document.createElement('canvas');
     canvas.className = 'chart-canvas';
     analysisOut.appendChild(canvas);
     requestAnimationFrame(() => draw(canvas));
+  }
+  if (a.stft) {
+    const sc = document.createElement('canvas');
+    sc.className = 'chart-canvas-tall';
+    analysisOut.appendChild(sc);
+    requestAnimationFrame(() => drawSpectrogram(sc, a.stft, `${a.name} — Spectrogram`, refFreqs));
+  }
+  if (a.harmonicDecay) {
+    const hc = document.createElement('canvas');
+    hc.className = 'chart-canvas';
+    analysisOut.appendChild(hc);
+    requestAnimationFrame(() => drawHarmonicDecay(hc, a.harmonicDecay, `${a.name} — Harmonic Decay`));
   }
 }
 
@@ -2127,6 +2178,18 @@ function renderSingleAnalysisInto(a, container, guitarName, chord, refFreqs) {
     canvas.className = 'chart-canvas';
     container.appendChild(canvas);
     requestAnimationFrame(() => draw(canvas));
+  }
+  if (a.stft) {
+    const sc = document.createElement('canvas');
+    sc.className = 'chart-canvas-tall';
+    container.appendChild(sc);
+    requestAnimationFrame(() => drawSpectrogram(sc, a.stft, `${a.name} — Spectrogram`, fftRef));
+  }
+  if (a.harmonicDecay) {
+    const hc = document.createElement('canvas');
+    hc.className = 'chart-canvas';
+    container.appendChild(hc);
+    requestAnimationFrame(() => drawHarmonicDecay(hc, a.harmonicDecay, `${a.name} — Harmonic Decay`));
   }
 
   if (guitarName && a.scores) {

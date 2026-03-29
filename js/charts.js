@@ -463,6 +463,241 @@ export function drawBinPowerCompare(canvas, analyses) {
   });
 }
 
+// ── Spectrogram ───────────────────────────────────────────────────────
+
+const SPEC_STOPS = [
+  [0.00,   2,   2,  12],
+  [0.15,  30,   4,  70],
+  [0.30,  90,  10,  90],
+  [0.45, 160,  30,  70],
+  [0.60, 210,  70,  30],
+  [0.75, 240, 150,  20],
+  [0.90, 255, 220,  80],
+  [1.00, 255, 255, 220],
+];
+
+function spectrogramRGB(t) {
+  t = Math.max(0, Math.min(1, t));
+  for (let i = 0; i < SPEC_STOPS.length - 1; i++) {
+    if (t <= SPEC_STOPS[i + 1][0]) {
+      const ratio = (t - SPEC_STOPS[i][0]) / (SPEC_STOPS[i + 1][0] - SPEC_STOPS[i][0]);
+      return [
+        Math.round(SPEC_STOPS[i][1] + ratio * (SPEC_STOPS[i + 1][1] - SPEC_STOPS[i][1])),
+        Math.round(SPEC_STOPS[i][2] + ratio * (SPEC_STOPS[i + 1][2] - SPEC_STOPS[i][2])),
+        Math.round(SPEC_STOPS[i][3] + ratio * (SPEC_STOPS[i + 1][3] - SPEC_STOPS[i][3])),
+      ];
+    }
+  }
+  return [255, 255, 220];
+}
+
+export function drawSpectrogram(canvas, stftData, title = 'Spectrogram', referenceFreqs = null) {
+  if (!stftData || !stftData.data || !stftData.data.length) return;
+  const { ctx, w, h } = setupCanvas(canvas, title);
+  const tc = themeColors();
+  const top = 36, bot = 30, left = 48, right = 54;
+  const plotW = w - left - right;
+  const plotH = h - top - bot;
+
+  const { times, frequencies, numBins, data } = stftData;
+  const numFrames = times.length;
+
+  const minF = Math.max(frequencies[0] || 50, 50);
+  const maxF = Math.min(frequencies[frequencies.length - 1] || 5000, 5000);
+  const logMinF = Math.log10(minF);
+  const logMaxF = Math.log10(maxF);
+  const logRangeF = logMaxF - logMinF;
+
+  let peak = 0;
+  for (let i = 0; i < data.length; i++) { if (data[i] > peak) peak = data[i]; }
+  if (peak === 0) peak = 1;
+
+  const cellW = Math.ceil(plotW / numFrames) + 1;
+  for (let t = 0; t < numFrames; t++) {
+    const x = left + (t / numFrames) * plotW;
+    for (let f = 0; f < numBins - 1; f++) {
+      const freq = frequencies[f];
+      const nextFreq = frequencies[f + 1];
+      if (freq < minF || freq > maxF) continue;
+
+      const logF = Math.log10(freq);
+      const logFN = Math.log10(Math.min(nextFreq, maxF));
+      const y1 = top + plotH * (1 - (logF - logMinF) / logRangeF);
+      const y2 = top + plotH * (1 - (logFN - logMinF) / logRangeF);
+
+      const mag = data[t * numBins + f];
+      const db = mag > 0 ? 20 * Math.log10(mag / peak) : -80;
+      const norm = Math.max(0, (db + 80) / 80);
+
+      const [r, g, b] = spectrogramRGB(norm);
+      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      ctx.fillRect(x, y2, cellW, Math.max(y1 - y2, 1));
+    }
+  }
+
+  if (referenceFreqs) {
+    for (const ref of referenceFreqs) {
+      if (ref.hz < minF || ref.hz > maxF) continue;
+      const logF = Math.log10(ref.hz);
+      const y = top + plotH * (1 - (logF - logMinF) / logRangeF);
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+      ctx.lineWidth = 0.7;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      ctx.moveTo(left, y);
+      ctx.lineTo(left + plotW, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = 'rgba(255,255,255,0.8)';
+      ctx.font = 'bold 8px Inter, system-ui, sans-serif';
+      ctx.fillText(ref.name, left + plotW + 3, y + 3);
+    }
+  }
+
+  // Axes
+  ctx.strokeStyle = tc.axis;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(left, top);
+  ctx.lineTo(left, top + plotH);
+  ctx.lineTo(left + plotW, top + plotH);
+  ctx.stroke();
+
+  // Y-axis freq ticks (log-spaced)
+  ctx.fillStyle = tc.label;
+  ctx.font = '9px Inter, system-ui, sans-serif';
+  for (const f of [100, 200, 500, 1000, 2000, 5000]) {
+    if (f < minF || f > maxF) continue;
+    const logF = Math.log10(f);
+    const y = top + plotH * (1 - (logF - logMinF) / logRangeF);
+    const label = f >= 1000 ? (f / 1000) + 'k' : String(f);
+    ctx.fillText(label, left - ctx.measureText(label).width - 4, y + 3);
+    ctx.strokeStyle = tc.grid;
+    ctx.lineWidth = 0.3;
+    ctx.beginPath();
+    ctx.moveTo(left, y);
+    ctx.lineTo(left + plotW, y);
+    ctx.stroke();
+  }
+
+  // X-axis time ticks
+  ctx.fillStyle = tc.label;
+  ctx.font = '9px Inter, system-ui, sans-serif';
+  const maxT = times[times.length - 1];
+  const tStep = maxT <= 2 ? 0.5 : maxT <= 4 ? 1 : 2;
+  for (let t = 0; t <= maxT; t += tStep) {
+    const x = left + (t / maxT) * plotW;
+    ctx.fillText(t.toFixed(1) + 's', x - 8, top + plotH + 13);
+  }
+
+  // Y-axis label
+  ctx.save();
+  ctx.translate(10, top + plotH / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillStyle = tc.label;
+  ctx.font = '10px Inter, system-ui, sans-serif';
+  ctx.fillText('Hz', -8, 0);
+  ctx.restore();
+}
+
+// ── Harmonic Decay Chart ──────────────────────────────────────────────
+
+const HARMONIC_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
+
+export function drawHarmonicDecay(canvas, harmonicDecay, title = 'Harmonic Decay Over Time') {
+  if (!harmonicDecay || !harmonicDecay.harmonics || !harmonicDecay.harmonics.length) return;
+  const { ctx, w, h } = setupCanvas(canvas, title);
+  const tc = themeColors();
+  const top = 36, bot = 40;
+  const plotH = h - top - bot;
+  const plotW = w - 56;
+  const ox = 48;
+
+  const { times, harmonics } = harmonicDecay;
+  const maxT = times[times.length - 1] || 1;
+
+  let globalPeak = 0;
+  for (const harm of harmonics) {
+    for (const a of harm.amplitudes) { if (a > globalPeak) globalPeak = a; }
+  }
+  if (globalPeak === 0) globalPeak = 1;
+
+  const dbFloor = -60;
+
+  // Axes
+  ctx.strokeStyle = tc.axis;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(ox, top);
+  ctx.lineTo(ox, top + plotH);
+  ctx.lineTo(ox + plotW, top + plotH);
+  ctx.stroke();
+
+  // dB grid
+  for (let db = 0; db >= dbFloor; db -= 20) {
+    const y = top + plotH * (-db / -dbFloor);
+    ctx.strokeStyle = tc.grid;
+    ctx.lineWidth = 0.4;
+    ctx.beginPath();
+    ctx.moveTo(ox, y);
+    ctx.lineTo(ox + plotW, y);
+    ctx.stroke();
+    ctx.fillStyle = tc.label;
+    ctx.font = '9px Inter, system-ui, sans-serif';
+    ctx.fillText(`${db}`, ox - 26, y + 3);
+  }
+
+  // Draw each harmonic as a line
+  harmonics.forEach((harm, hi) => {
+    ctx.strokeStyle = HARMONIC_COLORS[hi % HARMONIC_COLORS.length];
+    ctx.lineWidth = hi === 0 ? 2 : 1.2;
+    ctx.beginPath();
+    let started = false;
+    for (let i = 0; i < harm.amplitudes.length; i++) {
+      const x = ox + (times[i] / maxT) * plotW;
+      const mag = harm.amplitudes[i];
+      const db = mag > 0 ? 20 * Math.log10(mag / globalPeak) : dbFloor;
+      const clamped = Math.max(db, dbFloor);
+      const y = top + plotH * (-clamped / -dbFloor);
+      if (!started) { ctx.moveTo(x, y); started = true; }
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  });
+
+  // Time ticks
+  ctx.fillStyle = tc.label;
+  ctx.font = '9px Inter, system-ui, sans-serif';
+  const tStep = maxT <= 2 ? 0.5 : maxT <= 4 ? 1 : 2;
+  for (let t = 0; t <= maxT; t += tStep) {
+    const x = ox + (t / maxT) * plotW;
+    ctx.fillText(t.toFixed(1) + 's', x - 8, top + plotH + 13);
+  }
+
+  // Legend
+  const legendY = h - 4;
+  let legendX = ox;
+  ctx.font = '9px Inter, system-ui, sans-serif';
+  harmonics.forEach((harm, hi) => {
+    const color = HARMONIC_COLORS[hi % HARMONIC_COLORS.length];
+    ctx.fillStyle = color;
+    ctx.fillRect(legendX, legendY - 7, 8, 8);
+    const label = harm.harmonic === 1 ? 'Fund.' : `${harm.harmonic}×`;
+    ctx.fillStyle = tc.text;
+    ctx.fillText(label, legendX + 11, legendY);
+    legendX += ctx.measureText(label).width + 20;
+  });
+
+  // Y-axis label
+  ctx.save();
+  ctx.translate(10, top + plotH / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillStyle = tc.label;
+  ctx.font = '10px Inter, system-ui, sans-serif';
+  ctx.fillText('dB', -6, 0);
+  ctx.restore();
+}
+
 export function drawMirrorFFT(canvas, a1, a2) {
   const { ctx, w, h } = setupCanvas(canvas, `Mirror FFT (dB) — ${a1.name} vs ${a2.name}`);
   const tc = themeColors();

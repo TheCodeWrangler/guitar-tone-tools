@@ -211,6 +211,36 @@ function scoreDynamicRange(envelope) {
   return clamp(Math.round(score));
 }
 
+/**
+ * Harmonic sustain: how well overtones sustain relative to the fundamental.
+ * If harmonics decay much faster than the fundamental the tone loses
+ * complexity quickly — bright attack then dull sustain.
+ */
+function scoreHarmonicSustain(harmonicDecay) {
+  if (!harmonicDecay || !harmonicDecay.harmonics || harmonicDecay.harmonics.length < 2) return 50;
+
+  const fund = harmonicDecay.harmonics[0];
+  if (!fund || !fund.decayRate || fund.decayRate <= 0) return 50;
+
+  let totalRatio = 0;
+  let count = 0;
+  for (let i = 1; i < harmonicDecay.harmonics.length; i++) {
+    const h = harmonicDecay.harmonics[i];
+    if (h.decayRate && h.decayRate > 0) {
+      totalRatio += h.decayRate / fund.decayRate;
+      count++;
+    }
+  }
+  if (count === 0) return 50;
+
+  const avgRatio = totalRatio / count;
+  // ratio 1.0 → harmonics sustain equally (excellent)
+  // ratio 2.0 → harmonics die twice as fast (decent)
+  // ratio 4.0+ → harmonics die very fast (poor)
+  const score = 100 * Math.exp(-0.4 * (avgRatio - 1));
+  return clamp(Math.round(score));
+}
+
 function clamp(v, min = 0, max = 100) {
   return Math.max(min, Math.min(max, v));
 }
@@ -218,26 +248,28 @@ function clamp(v, min = 0, max = 100) {
 // ── Composite scoring ──────────────────────────────────────────────────
 
 const WEIGHTS = {
-  sustain:    0.20,
-  harmonics:  0.20,
-  balance:    0.15,
-  inharmonicity: 0.15,
-  clarity:    0.15,
-  dynamicRange: 0.15,
+  sustain:        0.18,
+  harmonics:      0.17,
+  harmonicSustain:0.12,
+  balance:        0.13,
+  inharmonicity:  0.13,
+  clarity:        0.14,
+  dynamicRange:   0.13,
 };
 
 export function computeScores(analysis) {
-  const { fundamental, dampingFactor, binPowers, fft, damping } = analysis;
+  const { fundamental, dampingFactor, binPowers, fft, damping, harmonicDecay } = analysis;
   const { frequencies, magnitudes } = fft;
   const { envelope } = damping;
 
   const scores = {
-    sustain:       scoreSustain(dampingFactor),
-    harmonics:     scoreHarmonicRichness(frequencies, magnitudes, fundamental),
-    balance:       scoreTonalBalance(binPowers),
-    inharmonicity: scoreInharmonicity(frequencies, magnitudes, fundamental),
-    clarity:       scoreClarity(frequencies, magnitudes, fundamental),
-    dynamicRange:  scoreDynamicRange(envelope),
+    sustain:         scoreSustain(dampingFactor),
+    harmonics:       scoreHarmonicRichness(frequencies, magnitudes, fundamental),
+    harmonicSustain: scoreHarmonicSustain(harmonicDecay),
+    balance:         scoreTonalBalance(binPowers),
+    inharmonicity:   scoreInharmonicity(frequencies, magnitudes, fundamental),
+    clarity:         scoreClarity(frequencies, magnitudes, fundamental),
+    dynamicRange:    scoreDynamicRange(envelope),
   };
 
   let overall = 0;
@@ -250,22 +282,24 @@ export function computeScores(analysis) {
 }
 
 export const SCORE_LABELS = {
-  sustain:       'Sustain',
-  harmonics:     'Harmonic Richness',
-  balance:       'Tonal Balance',
-  inharmonicity: 'Inharmonicity',
-  clarity:       'Clarity',
-  dynamicRange:  'Dynamic Range',
-  overall:       'Overall',
+  sustain:         'Sustain',
+  harmonics:       'Harmonic Richness',
+  harmonicSustain: 'Harmonic Sustain',
+  balance:         'Tonal Balance',
+  inharmonicity:   'Inharmonicity',
+  clarity:         'Clarity',
+  dynamicRange:    'Dynamic Range',
+  overall:         'Overall',
 };
 
 export const SCORE_DESCRIPTIONS = {
-  sustain:       'How long the note rings before dying out',
-  harmonics:     'Number and strength of overtones above the fundamental',
-  balance:       'How evenly energy is spread across frequency bands',
-  inharmonicity: 'How closely overtones align to perfect harmonic intervals',
-  clarity:       'Sharpness and definition of tonal peaks vs background noise',
-  dynamicRange:  'Signal-to-noise ratio of the recording',
+  sustain:         'How long the note rings before dying out',
+  harmonics:       'Number and strength of overtones above the fundamental',
+  harmonicSustain: 'How well overtones sustain relative to the fundamental',
+  balance:         'How evenly energy is spread across frequency bands',
+  inharmonicity:   'How closely overtones align to perfect harmonic intervals',
+  clarity:         'Sharpness and definition of tonal peaks vs background noise',
+  dynamicRange:    'Signal-to-noise ratio of the recording',
 };
 
 export function scoreGrade(score) {
