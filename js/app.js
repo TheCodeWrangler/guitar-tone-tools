@@ -11,7 +11,51 @@ import {
   drawWaveform, drawFFT, drawBinPowers, drawDamping,
   drawFFTOverlay, drawBinPowerCompare, drawMirrorFFT,
 } from './charts.js';
-import { PROFILE_STEPS, STRING_CATEGORIES, CHORD_DIAGRAMS, STRING_DIAGRAMS, computeProfile } from './profile.js';
+import { PROFILE_STEPS, STRING_CATEGORIES, CHORD_DIAGRAMS, STRING_DIAGRAMS, CHORD_NOTES, computeProfile } from './profile.js';
+
+// ── Helpers: reference frequency lines for FFT ────────────────────────
+
+function buildRefFreqs(chordOrNote) {
+  if (!chordOrNote) return null;
+
+  const chordKey = chordOrNote.replace('Open ', '');
+  if (CHORD_NOTES[chordKey]) return CHORD_NOTES[chordKey];
+
+  const noteMatch = chordOrNote.match(/^Note\s+([A-G]#?\d)$/);
+  if (noteMatch) {
+    const preset = CHORD_PRESETS[chordOrNote];
+    if (preset) {
+      const f = preset.hz;
+      const refs = [{ hz: f, name: noteMatch[1] }];
+      for (let h = 2; h <= 6; h++) {
+        const hf = f * h;
+        if (hf > 5000) break;
+        const n = hzToNote(hf);
+        refs.push({ hz: hf, name: `${n.name} (${h}×)` });
+      }
+      return refs;
+    }
+  }
+
+  return null;
+}
+
+function buildRefFreqsForStep(step) {
+  if (!step) return null;
+  if (step.type === 'chord' && CHORD_NOTES[step.id]) return CHORD_NOTES[step.id];
+  if (step.type === 'string') {
+    const f = step.hz;
+    const refs = [{ hz: f, name: step.id }];
+    for (let h = 2; h <= 6; h++) {
+      const hf = f * h;
+      if (hf > 5000) break;
+      const n = hzToNote(hf);
+      refs.push({ hz: hf, name: `${n.name} (${h}×)` });
+    }
+    return refs;
+  }
+  return null;
+}
 
 // ── State ──────────────────────────────────────────────────────────────
 
@@ -421,9 +465,10 @@ function renderSingleAnalysis(a) {
   }
   analysisOut.appendChild(binRow);
 
+  const refFreqs = buildRefFreqs(chordSelect.value);
   const charts = [
     (c) => drawWaveform(c, a.waveform.samples, a.waveform.sr, `${a.name} — Waveform`),
-    (c) => drawFFT(c, a.fft.frequencies, a.fft.magnitudes, `${a.name} — Frequency Spectrum`),
+    (c) => drawFFT(c, a.fft.frequencies, a.fft.magnitudes, `${a.name} — Frequency Spectrum`, '#7c3aed', refFreqs),
     (c) => drawBinPowers(c, a.binPowers, `${a.name} — Bin Power`),
     (c) => drawDamping(c, a.damping.envelope, a.damping.times, `${a.name} — Amplitude Decay`),
   ];
@@ -993,8 +1038,10 @@ function renderProfileReport(profile, name, container, entryId) {
         toggle.textContent = '▾';
         if (!detail.dataset.rendered) {
           const idx = parseInt(targetId.replace('profile-step-detail-', ''), 10);
-          const a = stepResults[idx].analysis;
-          renderSingleAnalysisInto(a, detail);
+          const r = stepResults[idx];
+          const a = r.analysis;
+          const step = PROFILE_STEPS.find(s => s.id === r.stepId);
+          renderSingleAnalysisInto(a, detail, null, null, buildRefFreqsForStep(step));
           detail.dataset.rendered = 'true';
         }
       } else {
@@ -1791,10 +1838,11 @@ function runComparison(selected, output, warnDiv) {
     warnDiv.innerHTML = '';
   }
 
-  renderComparison(selected.map(g => g.analysis), output);
+  const refFreqs = chords.length === 1 ? buildRefFreqs(chords[0]) : null;
+  renderComparison(selected.map(g => g.analysis), output, refFreqs);
 }
 
-function renderComparison(analyses, container) {
+function renderComparison(analyses, container, refFreqs = null) {
   container.innerHTML = '';
 
   const hasScores = analyses.every(a => a.scores);
@@ -1851,7 +1899,7 @@ function renderComparison(analyses, container) {
   container.appendChild(sigTable);
 
   const chartDefs = [
-    (c) => drawFFTOverlay(c, analyses),
+    (c) => drawFFTOverlay(c, analyses, refFreqs),
     (c) => drawBinPowerCompare(c, analyses),
   ];
 
@@ -2050,16 +2098,17 @@ $('#library-content').addEventListener('click', (e) => {
   }
 });
 
-function renderSingleAnalysisInto(a, container, guitarName, chord) {
+function renderSingleAnalysisInto(a, container, guitarName, chord, refFreqs) {
   if (a.scores) {
     const div = document.createElement('div');
     div.innerHTML = renderScoreCard(a.scores);
     container.appendChild(div);
   }
 
+  const fftRef = refFreqs || buildRefFreqs(chord) || null;
   const charts = [
     (c) => drawWaveform(c, a.waveform.samples, a.waveform.sr, `${a.name} — Waveform`),
-    (c) => drawFFT(c, a.fft.frequencies, a.fft.magnitudes, `${a.name} — Frequency Spectrum`),
+    (c) => drawFFT(c, a.fft.frequencies, a.fft.magnitudes, `${a.name} — Frequency Spectrum`, '#7c3aed', fftRef),
     (c) => drawBinPowers(c, a.binPowers, `${a.name} — Bin Power`),
     (c) => drawDamping(c, a.damping.envelope, a.damping.times, `${a.name} — Amplitude Decay`),
   ];

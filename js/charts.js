@@ -87,7 +87,7 @@ export function drawWaveform(canvas, samples, sr, title = 'Waveform') {
   }
 }
 
-export function drawFFT(canvas, frequencies, magnitudes, title = 'Frequency Spectrum', color = '#7c3aed') {
+export function drawFFT(canvas, frequencies, magnitudes, title = 'Frequency Spectrum', color = '#7c3aed', referenceFreqs = null) {
   const { ctx, w, h } = setupCanvas(canvas, title);
   const top = 36, bot = 30;
   const plotH = h - top - bot;
@@ -98,6 +98,33 @@ export function drawFFT(canvas, frequencies, magnitudes, title = 'Frequency Spec
   let maxIdx = frequencies.length;
   for (let i = 0; i < frequencies.length; i++) {
     if (frequencies[i] > 5000) { maxIdx = i; break; }
+  }
+  const maxFreq = frequencies[maxIdx - 1] || 5000;
+
+  // Reference frequency lines (drawn first so spectrum draws over them)
+  if (referenceFreqs && referenceFreqs.length) {
+    const REF_COLORS = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899'];
+    referenceFreqs.forEach((ref, ri) => {
+      if (ref.hz > maxFreq || ref.hz < 0) return;
+      const x = ox + (ref.hz / maxFreq) * plotW;
+
+      ctx.strokeStyle = REF_COLORS[ri % REF_COLORS.length];
+      ctx.globalAlpha = 0.45;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(x, top);
+      ctx.lineTo(x, top + plotH);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+
+      ctx.fillStyle = REF_COLORS[ri % REF_COLORS.length];
+      ctx.font = 'bold 9px Inter, system-ui, sans-serif';
+      const labelW = ctx.measureText(ref.name).width;
+      const stagger = (ri % 2) * 12;
+      ctx.fillText(ref.name, x - labelW / 2, top + 10 + stagger);
+    });
   }
 
   ctx.strokeStyle = '#475569';
@@ -127,7 +154,6 @@ export function drawFFT(canvas, frequencies, magnitudes, title = 'Frequency Spec
   // Freq ticks
   ctx.fillStyle = '#94a3b8';
   ctx.font = '10px Inter, system-ui, sans-serif';
-  const maxFreq = frequencies[maxIdx - 1] || 5000;
   for (let f = 0; f <= maxFreq; f += 1000) {
     const x = ox + (f / maxFreq) * plotW;
     ctx.fillText(f >= 1000 ? (f / 1000) + 'k' : String(f), x - 8, top + plotH + 14);
@@ -210,12 +236,36 @@ export function drawDamping(canvas, envelope, times, title = 'Amplitude Decay') 
 
 // ── Comparison charts ──────────────────────────────────────────────────
 
-export function drawFFTOverlay(canvas, analyses) {
+export function drawFFTOverlay(canvas, analyses, referenceFreqs = null) {
   const { ctx, w, h } = setupCanvas(canvas, 'Frequency Spectrum Comparison');
   const top = 36, bot = 40;
   const plotH = h - top - bot;
   const plotW = w - 50;
   const ox = 40;
+  const maxFreq = 5000;
+
+  if (referenceFreqs && referenceFreqs.length) {
+    const REF_COLORS = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899'];
+    referenceFreqs.forEach((ref, ri) => {
+      if (ref.hz > maxFreq || ref.hz < 0) return;
+      const x = ox + (ref.hz / maxFreq) * plotW;
+      ctx.strokeStyle = REF_COLORS[ri % REF_COLORS.length];
+      ctx.globalAlpha = 0.35;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(x, top);
+      ctx.lineTo(x, top + plotH);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = REF_COLORS[ri % REF_COLORS.length];
+      ctx.font = 'bold 9px Inter, system-ui, sans-serif';
+      const labelW = ctx.measureText(ref.name).width;
+      const stagger = (ri % 2) * 12;
+      ctx.fillText(ref.name, x - labelW / 2, top + 10 + stagger);
+    });
+  }
 
   ctx.strokeStyle = '#475569';
   ctx.lineWidth = 1;

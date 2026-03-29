@@ -27,6 +27,29 @@ export const STRING_DIAGRAMS = {
   E4: { stringIndex: 5, label: '1st (thinnest)' },
 };
 
+/**
+ * Notes that sound in each open chord (frequencies in Hz).
+ * Used to draw reference lines on FFT spectrograms.
+ */
+export const CHORD_NOTES = {
+  G:  [
+    { hz: 196.00, name: 'G3' }, { hz: 246.94, name: 'B3' }, { hz: 293.66, name: 'D4' },
+    { hz: 392.00, name: 'G4' }, { hz: 493.88, name: 'B4' }, { hz: 587.33, name: 'D5' },
+  ],
+  C:  [
+    { hz: 130.81, name: 'C3' }, { hz: 164.81, name: 'E3' }, { hz: 196.00, name: 'G3' },
+    { hz: 261.63, name: 'C4' }, { hz: 329.63, name: 'E4' },
+  ],
+  Em: [
+    { hz: 82.41, name: 'E2' }, { hz: 123.47, name: 'B2' }, { hz: 164.81, name: 'E3' },
+    { hz: 196.00, name: 'G3' }, { hz: 246.94, name: 'B3' }, { hz: 329.63, name: 'E4' },
+  ],
+  D:  [
+    { hz: 146.83, name: 'D3' }, { hz: 220.00, name: 'A3' }, { hz: 293.66, name: 'D4' },
+    { hz: 369.99, name: 'F#4' },
+  ],
+};
+
 export const PROFILE_STEPS = [
   { id: 'E2', label: '6th String — E2',   type: 'string', hz: 82.41,  instruction: 'Pluck the low E string (6th, thickest) and let it ring for 3–5 seconds.' },
   { id: 'A2', label: '5th String — A2',   type: 'string', hz: 110.00, instruction: 'Pluck the A string (5th) and let it ring for 3–5 seconds.' },
