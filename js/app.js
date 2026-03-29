@@ -10,8 +10,9 @@ import {
 import {
   drawWaveform, drawFFT, drawBinPowers, drawDamping,
   drawFFTOverlay, drawBinPowerCompare, drawMirrorFFT,
-  drawSpectrogram, drawHarmonicDecay,
-  drawDecayRateCompare, drawHarmonicDecayCompare,
+  drawSpectrogram,
+  drawDecayRateCompare,
+  mountHarmonicDecayChart, mountHarmonicDecayCompareChart,
 } from './charts.js';
 import { PROFILE_STEPS, STRING_CATEGORIES, CHORD_DIAGRAMS, STRING_DIAGRAMS, CHORD_NOTES, computeProfile } from './profile.js';
 import {
@@ -537,10 +538,7 @@ function renderSingleAnalysis(a) {
     requestAnimationFrame(() => drawSpectrogram(sc, a.stft, `${a.name} — Spectrogram`, refFreqs));
   }
   if (a.harmonicDecay) {
-    const hc = document.createElement('canvas');
-    hc.className = 'chart-canvas';
-    analysisOut.appendChild(hc);
-    requestAnimationFrame(() => drawHarmonicDecay(hc, a.harmonicDecay, `${a.name} — Harmonic Decay`));
+    mountHarmonicDecayChart(analysisOut, a.harmonicDecay, `${a.name} — Harmonic Decay`);
   }
 }
 
@@ -2001,7 +1999,6 @@ function renderStepComparison(perGuitar, step, container) {
   const hasDecay = analyses.filter(a => a.harmonicDecay && a.harmonicDecay.harmonics && a.harmonicDecay.harmonics.length).length >= 2;
   if (hasDecay) {
     chartDefs.push((c) => drawDecayRateCompare(c, analyses));
-    chartDefs.push((c) => drawHarmonicDecayCompare(c, analyses));
   }
 
   for (const draw of chartDefs) {
@@ -2009,6 +2006,10 @@ function renderStepComparison(perGuitar, step, container) {
     canvas.className = 'chart-canvas';
     container.appendChild(canvas);
     requestAnimationFrame(() => draw(canvas));
+  }
+
+  if (hasDecay) {
+    mountHarmonicDecayCompareChart(container, analyses);
   }
 
   // Side-by-side spectrograms
@@ -2110,7 +2111,6 @@ function renderComparison(analyses, container, refFreqs = null) {
   const hasDecay = analyses.filter(a => a.harmonicDecay && a.harmonicDecay.harmonics && a.harmonicDecay.harmonics.length).length >= 2;
   if (hasDecay) {
     chartDefs.push((c) => drawDecayRateCompare(c, analyses));
-    chartDefs.push((c) => drawHarmonicDecayCompare(c, analyses));
   }
 
   for (const draw of chartDefs) {
@@ -2118,6 +2118,10 @@ function renderComparison(analyses, container, refFreqs = null) {
     canvas.className = 'chart-canvas';
     container.appendChild(canvas);
     requestAnimationFrame(() => draw(canvas));
+  }
+
+  if (hasDecay) {
+    mountHarmonicDecayCompareChart(container, analyses);
   }
 
   if (hasScores) {
@@ -2342,10 +2346,7 @@ function renderSingleAnalysisInto(a, container, guitarName, chord, refFreqs) {
     requestAnimationFrame(() => drawSpectrogram(sc, a.stft, `${a.name} — Spectrogram`, fftRef));
   }
   if (a.harmonicDecay) {
-    const hc = document.createElement('canvas');
-    hc.className = 'chart-canvas';
-    container.appendChild(hc);
-    requestAnimationFrame(() => drawHarmonicDecay(hc, a.harmonicDecay, `${a.name} — Harmonic Decay`));
+    mountHarmonicDecayChart(container, a.harmonicDecay, `${a.name} — Harmonic Decay`);
   }
 
   if (guitarName && a.scores) {

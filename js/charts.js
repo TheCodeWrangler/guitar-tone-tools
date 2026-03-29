@@ -553,12 +553,13 @@ export function drawDecayRateCompare(canvas, analyses) {
   });
 }
 
-export function drawHarmonicDecayCompare(canvas, analyses) {
+export function drawHarmonicDecayCompare(canvas, analyses, visibleSet = null) {
   const valid = analyses.filter(a => a.harmonicDecay && a.harmonicDecay.harmonics && a.harmonicDecay.harmonics.length);
   if (valid.length < 2) return;
-  const { ctx, w, h } = setupCanvas(canvas, 'Fundamental & Harmonic Sustain Comparison');
+  const { ctx, w, h } = setupCanvas(canvas, 'Harmonic Sustain Comparison');
   const tc = themeColors();
-  const top = 36, bot = 42;
+  const skipLegend = visibleSet !== null;
+  const top = 36, bot = skipLegend ? 24 : 42;
   const plotH = h - top - bot;
   const plotW = w - 56;
   const ox = 48;
@@ -601,22 +602,20 @@ export function drawHarmonicDecayCompare(canvas, analyses) {
     ctx.fillText(`${db}`, ox - 26, y + 3);
   }
 
-  // Draw only fundamental (h=1) and 2nd harmonic for each guitar — keeps it readable
-  const showHarmonics = [0, 1];
-  const lineStyles = [[], [6, 4]];
+  const showHarmonics = visibleSet ? [...visibleSet].sort((a, b) => a - b) : [0, 1];
 
   valid.forEach((a, gi) => {
     const hd = a.harmonicDecay;
     const baseColor = COLORS[gi % COLORS.length];
 
-    showHarmonics.forEach((hi, si) => {
+    showHarmonics.forEach((hi) => {
       if (hi >= hd.harmonics.length) return;
       const harm = hd.harmonics[hi];
-      const alpha = hi === 0 ? 1.0 : 0.6;
+      const alpha = hi === 0 ? 1.0 : 0.7;
       ctx.strokeStyle = baseColor;
       ctx.globalAlpha = alpha;
       ctx.lineWidth = hi === 0 ? 2 : 1.2;
-      ctx.setLineDash(lineStyles[si]);
+      ctx.setLineDash(DASH_PATTERNS[hi % DASH_PATTERNS.length]);
       ctx.beginPath();
       let started = false;
       for (let i = 0; i < harm.amplitudes.length; i++) {
@@ -652,37 +651,46 @@ export function drawHarmonicDecayCompare(canvas, analyses) {
   ctx.fillText('dB', -6, 0);
   ctx.restore();
 
-  // Legend
-  const legendY = h - 4;
+  // Guitar color legend
+  const legendY = h - 6;
   let legendX = ox;
   ctx.font = '9px Inter, system-ui, sans-serif';
-  valid.forEach((a, gi) => {
-    const color = COLORS[gi % COLORS.length];
-
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(legendX, legendY - 3);
-    ctx.lineTo(legendX + 14, legendY - 3);
-    ctx.stroke();
-    ctx.fillStyle = tc.text;
-    ctx.fillText(a.name + ' (fund.)', legendX + 18, legendY);
-    legendX += ctx.measureText(a.name + ' (fund.)').width + 28;
-
-    ctx.strokeStyle = color;
-    ctx.globalAlpha = 0.6;
-    ctx.lineWidth = 1.2;
-    ctx.setLineDash([6, 4]);
-    ctx.beginPath();
-    ctx.moveTo(legendX, legendY - 3);
-    ctx.lineTo(legendX + 14, legendY - 3);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = tc.text;
-    ctx.fillText('2×', legendX + 18, legendY);
-    legendX += ctx.measureText('2×').width + 28;
-  });
+  if (skipLegend) {
+    valid.forEach((a, gi) => {
+      const color = COLORS[gi % COLORS.length];
+      ctx.fillStyle = color;
+      ctx.fillRect(legendX, legendY - 5, 10, 3);
+      ctx.fillStyle = tc.text;
+      ctx.fillText(a.name, legendX + 14, legendY);
+      legendX += ctx.measureText(a.name).width + 24;
+    });
+  } else {
+    valid.forEach((a, gi) => {
+      const color = COLORS[gi % COLORS.length];
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(legendX, legendY - 3);
+      ctx.lineTo(legendX + 14, legendY - 3);
+      ctx.stroke();
+      ctx.fillStyle = tc.text;
+      ctx.fillText(a.name + ' (fund.)', legendX + 18, legendY);
+      legendX += ctx.measureText(a.name + ' (fund.)').width + 28;
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = 0.6;
+      ctx.lineWidth = 1.2;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(legendX, legendY - 3);
+      ctx.lineTo(legendX + 14, legendY - 3);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = tc.text;
+      ctx.fillText('2×', legendX + 18, legendY);
+      legendX += ctx.measureText('2×').width + 28;
+    });
+  }
 
   // Hover interaction
   const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -853,12 +861,14 @@ export function drawSpectrogram(canvas, stftData, title = 'Spectrogram', referen
 // ── Harmonic Decay Chart ──────────────────────────────────────────────
 
 const HARMONIC_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
+const DASH_PATTERNS = [[], [6, 4], [3, 3], [8, 3, 2, 3], [2, 2], [10, 4], [4, 2, 1, 2], [1, 3]];
 
-export function drawHarmonicDecay(canvas, harmonicDecay, title = 'Harmonic Decay Over Time') {
+export function drawHarmonicDecay(canvas, harmonicDecay, title = 'Harmonic Decay Over Time', visibleSet = null) {
   if (!harmonicDecay || !harmonicDecay.harmonics || !harmonicDecay.harmonics.length) return;
   const { ctx, w, h } = setupCanvas(canvas, title);
   const tc = themeColors();
-  const top = 36, bot = 40;
+  const skipLegend = visibleSet !== null;
+  const top = 36, bot = skipLegend ? 20 : 40;
   const plotH = h - top - bot;
   const plotW = w - 56;
   const ox = 48;
@@ -899,6 +909,7 @@ export function drawHarmonicDecay(canvas, harmonicDecay, title = 'Harmonic Decay
 
   // Draw each harmonic as a line
   harmonics.forEach((harm, hi) => {
+    if (visibleSet && !visibleSet.has(hi)) return;
     ctx.strokeStyle = HARMONIC_COLORS[hi % HARMONIC_COLORS.length];
     ctx.lineWidth = hi === 0 ? 2 : 1.2;
     ctx.beginPath();
@@ -924,20 +935,21 @@ export function drawHarmonicDecay(canvas, harmonicDecay, title = 'Harmonic Decay
     ctx.fillText(t.toFixed(1) + 's', x - 8, top + plotH + 13);
   }
 
-  // Legend
-  const legendY = h - 4;
-  let legendX = ox;
-  ctx.font = '9px Inter, system-ui, sans-serif';
-  harmonics.forEach((harm, hi) => {
-    const color = HARMONIC_COLORS[hi % HARMONIC_COLORS.length];
-    ctx.fillStyle = color;
-    ctx.fillRect(legendX, legendY - 7, 8, 8);
-    const hzLabel = harm.hz ? `${Math.round(harm.hz)}` : '';
-    const label = harm.harmonic === 1 ? `Fund.${hzLabel ? ' ' + hzLabel : ''}` : `${harm.harmonic}× ${hzLabel}`;
-    ctx.fillStyle = tc.text;
-    ctx.fillText(label, legendX + 11, legendY);
-    legendX += ctx.measureText(label).width + 20;
-  });
+  if (!skipLegend) {
+    const legendY = h - 4;
+    let legendX = ox;
+    ctx.font = '9px Inter, system-ui, sans-serif';
+    harmonics.forEach((harm, hi) => {
+      const color = HARMONIC_COLORS[hi % HARMONIC_COLORS.length];
+      ctx.fillStyle = color;
+      ctx.fillRect(legendX, legendY - 7, 8, 8);
+      const hzLabel = harm.hz ? `${Math.round(harm.hz)}` : '';
+      const label = harm.harmonic === 1 ? `Fund.${hzLabel ? ' ' + hzLabel : ''}` : `${harm.harmonic}× ${hzLabel}`;
+      ctx.fillStyle = tc.text;
+      ctx.fillText(label, legendX + 11, legendY);
+      legendX += ctx.measureText(label).width + 20;
+    });
+  }
 
   // Y-axis label
   ctx.save();
@@ -948,12 +960,12 @@ export function drawHarmonicDecay(canvas, harmonicDecay, title = 'Harmonic Decay
   ctx.fillText('dB', -6, 0);
   ctx.restore();
 
-  // Save image for hover redraw
   const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const dpr = window.devicePixelRatio || 1;
-
-  attachLineHover(canvas, {
-    lines: harmonics.map((harm, hi) => ({
+  const hoverLines = [];
+  harmonics.forEach((harm, hi) => {
+    if (visibleSet && !visibleSet.has(hi)) return;
+    hoverLines.push({
       label: harm.harmonic === 1 ? 'Fundamental' : `${harm.harmonic}× Harmonic`,
       hz: harm.hz,
       color: HARMONIC_COLORS[hi % HARMONIC_COLORS.length],
@@ -965,9 +977,9 @@ export function drawHarmonicDecay(canvas, harmonicDecay, title = 'Harmonic Decay
         const y = top + plotH * (-clamped / -dbFloor);
         return { x, y, time: times[i], db: mag > 0 ? 20 * Math.log10(mag / globalPeak) : dbFloor };
       }),
-    })),
-    imgData, dpr, ox, plotW, top, plotH,
+    });
   });
+  attachLineHover(canvas, { lines: hoverLines, imgData, dpr, ox, plotW, top, plotH });
 }
 
 // ── Hover interaction for line charts ─────────────────────────────────
@@ -1174,4 +1186,101 @@ export function drawMirrorFFT(canvas, a1, a2) {
   ctx.fillText(a1.name, ox + plotW - 80, top + 14);
   ctx.fillStyle = '#ef4444';
   ctx.fillText(a2.name, ox + plotW - 80, top + plotH - 6);
+}
+
+// ── Interactive harmonic decay widgets ────────────────────────────────
+
+function buildHarmonicToggle(label, color, isActive, dashStyle) {
+  const btn = document.createElement('button');
+  btn.className = 'harmonic-toggle' + (isActive ? ' active' : '');
+  if (dashStyle === 'swatch') {
+    btn.innerHTML = `<span class="ht-swatch" style="background:${color}"></span>${label}`;
+  } else {
+    const borderStyle = dashStyle || 'solid';
+    btn.innerHTML = `<span class="ht-line" style="border-top-style:${borderStyle}"></span>${label}`;
+  }
+  return btn;
+}
+
+export function mountHarmonicDecayChart(container, harmonicDecay, title = 'Harmonic Decay Over Time') {
+  if (!harmonicDecay || !harmonicDecay.harmonics || !harmonicDecay.harmonics.length) return;
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'harmonic-decay-widget';
+  container.appendChild(wrapper);
+
+  const canvas = document.createElement('canvas');
+  canvas.className = 'chart-canvas';
+  wrapper.appendChild(canvas);
+
+  const numH = harmonicDecay.harmonics.length;
+  const visible = new Set();
+  for (let i = 0; i < Math.min(2, numH); i++) visible.add(i);
+
+  const legend = document.createElement('div');
+  legend.className = 'harmonic-legend';
+  wrapper.appendChild(legend);
+
+  harmonicDecay.harmonics.forEach((harm, i) => {
+    const color = HARMONIC_COLORS[i % HARMONIC_COLORS.length];
+    const label = harm.harmonic === 1 ? 'Fund.' : `${harm.harmonic}×`;
+    const hzStr = harm.hz ? ` ${Math.round(harm.hz)}Hz` : '';
+    const btn = buildHarmonicToggle(label + hzStr, color, visible.has(i), 'swatch');
+    btn.addEventListener('click', () => {
+      if (visible.has(i)) { if (visible.size > 1) visible.delete(i); }
+      else visible.add(i);
+      btn.classList.toggle('active', visible.has(i));
+      redraw();
+    });
+    legend.appendChild(btn);
+  });
+
+  function redraw() {
+    requestAnimationFrame(() => drawHarmonicDecay(canvas, harmonicDecay, title, visible));
+  }
+  redraw();
+}
+
+export function mountHarmonicDecayCompareChart(container, analyses) {
+  const valid = analyses.filter(a => a.harmonicDecay && a.harmonicDecay.harmonics && a.harmonicDecay.harmonics.length);
+  if (valid.length < 2) return;
+
+  let maxH = 0;
+  for (const a of valid) maxH = Math.max(maxH, a.harmonicDecay.harmonics.length);
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'harmonic-decay-widget';
+  container.appendChild(wrapper);
+
+  const canvas = document.createElement('canvas');
+  canvas.className = 'chart-canvas';
+  wrapper.appendChild(canvas);
+
+  const visible = new Set();
+  for (let i = 0; i < Math.min(2, maxH); i++) visible.add(i);
+
+  const legend = document.createElement('div');
+  legend.className = 'harmonic-legend';
+  wrapper.appendChild(legend);
+
+  const CSS_DASH = ['solid', 'dashed', 'dotted', 'dashed', 'dotted', 'dashed', 'dotted', 'dotted'];
+
+  for (let i = 0; i < maxH; i++) {
+    const sample = valid.find(a => a.harmonicDecay.harmonics.length > i);
+    const harm = sample.harmonicDecay.harmonics[i];
+    const label = harm.harmonic === 1 ? 'Fund.' : `${harm.harmonic}×`;
+    const btn = buildHarmonicToggle(label, null, visible.has(i), CSS_DASH[i % CSS_DASH.length]);
+    btn.addEventListener('click', () => {
+      if (visible.has(i)) { if (visible.size > 1) visible.delete(i); }
+      else visible.add(i);
+      btn.classList.toggle('active', visible.has(i));
+      redraw();
+    });
+    legend.appendChild(btn);
+  }
+
+  function redraw() {
+    requestAnimationFrame(() => drawHarmonicDecayCompare(canvas, valid, visible));
+  }
+  redraw();
 }

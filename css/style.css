@@ -1213,6 +1213,64 @@ select option { background: var(--surface-solid); color: var(--text); }
   font-weight: 600;
 }
 
+/* ── Interactive harmonic legend ──────────────────── */
+
+.harmonic-decay-widget {
+  display: flex;
+  flex-direction: column;
+}
+
+.harmonic-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  padding: 0.35rem 0.25rem 0;
+}
+
+.harmonic-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  opacity: 0.5;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+
+.harmonic-toggle:hover {
+  opacity: 0.8;
+  border-color: var(--border-light);
+}
+
+.harmonic-toggle.active {
+  opacity: 1;
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: var(--border-light);
+}
+
+.harmonic-toggle .ht-swatch {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.harmonic-toggle .ht-line {
+  display: inline-block;
+  width: 14px;
+  height: 0;
+  border-top: 2px solid currentColor;
+  vertical-align: middle;
+}
+
 /* ── Responsive ──────────────────────────────────────────────────── */
 
 @media (max-width: 600px) {

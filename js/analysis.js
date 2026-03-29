@@ -352,7 +352,7 @@ function downsampleSTFT(stft, maxFrames, maxFreqHz, maxBins) {
 
 // ── Harmonic Decay Tracking ───────────────────────────────────────────
 
-function findActualPeak(frequencies, magnitudes, targetHz, searchRadius) {
+function findPeakBin(frequencies, magnitudes, targetHz, searchRadius) {
   const loHz = targetHz - searchRadius;
   const hiHz = targetHz + searchRadius;
   let bestMag = 0, bestIdx = -1;
@@ -362,7 +362,25 @@ function findActualPeak(frequencies, magnitudes, targetHz, searchRadius) {
       bestIdx = i;
     }
   }
-  return bestIdx >= 0 ? frequencies[bestIdx] : targetHz;
+  if (bestIdx < 0) {
+    const freqStep = frequencies.length > 1 ? frequencies[1] : 1;
+    bestIdx = Math.round(targetHz / freqStep);
+    bestIdx = Math.max(0, Math.min(frequencies.length - 1, bestIdx));
+  }
+  // Parabolic interpolation for refined Hz
+  let refinedHz = frequencies[bestIdx];
+  if (bestIdx > 0 && bestIdx < frequencies.length - 1) {
+    const a = magnitudes[bestIdx - 1];
+    const b = magnitudes[bestIdx];
+    const c = magnitudes[bestIdx + 1];
+    const denom = a - 2 * b + c;
+    if (denom !== 0) {
+      const p = 0.5 * (a - c) / denom;
+      const freqStep = frequencies[1] - frequencies[0];
+      refinedHz = frequencies[bestIdx] + p * freqStep;
+    }
+  }
+  return { binIdx: bestIdx, hz: refinedHz };
 }
 
 function smoothArray(arr, radius) {
@@ -383,73 +401,85 @@ function trackHarmonicDecay(stft, fundamental) {
 
   const { times, frequencies, matrix } = stft;
   const maxHarmonics = 8;
-  const harmonics = [];
+  const nBins = frequencies.length;
+  const freqStep = nBins > 1 ? frequencies[1] : 1;
 
-  // Build an average magnitude spectrum from the first few frames (attack)
-  // to snap each harmonic to its actual spectral peak
   const attackFrames = Math.min(5, times.length);
-  const avgSpectrum = new Float32Array(frequencies.length);
+  const avgSpectrum = new Float32Array(nBins);
   for (let t = 0; t < attackFrames; t++) {
-    for (let i = 0; i < frequencies.length; i++) avgSpectrum[i] += matrix[t][i];
+    for (let i = 0; i < nBins; i++) avgSpectrum[i] += matrix[t][i];
   }
-  for (let i = 0; i < avgSpectrum.length; i++) avgSpectrum[i] /= attackFrames;
+  for (let i = 0; i < nBins; i++) avgSpectrum[i] /= attackFrames;
 
-  for (let h = 1; h <= maxHarmonics; h++) {
-    const nominalHz = fundamental * h;
-    if (nominalHz > 5000) break;
+  function buildHarmonics(fund) {
+    const result = [];
+    for (let h = 1; h <= maxHarmonics; h++) {
+      const nominalHz = fund * h;
+      if (nominalHz > 5000) break;
 
-    // Guitar strings are inharmonic — overtones drift sharp.
-    // Use a wider search window that grows with harmonic number.
-    const searchRadius = Math.max(nominalHz * 0.08, 15) + h * 3;
-    const actualHz = findActualPeak(frequencies, avgSpectrum, nominalHz, searchRadius);
+      const searchRadius = Math.max(nominalHz * 0.08, 15) + h * 3;
+      const { binIdx, hz: actualHz } = findPeakBin(frequencies, avgSpectrum, nominalHz, searchRadius);
 
-    // Track amplitude at the snapped frequency with a tight window
-    const trackRadius = Math.max(actualHz * 0.03, 8);
-    const loHz = actualHz - trackRadius;
-    const hiHz = actualHz + trackRadius;
+      // Bin-index tracking: ±2 bins around peak guarantees coverage
+      // even when the true frequency falls between bin centers
+      const halfW = 2;
+      const lo = Math.max(0, binIdx - halfW);
+      const hi = Math.min(nBins - 1, binIdx + halfW);
 
-    const rawAmplitudes = new Float32Array(times.length);
-    for (let t = 0; t < times.length; t++) {
-      let maxMag = 0;
-      for (let i = 0; i < frequencies.length; i++) {
-        if (frequencies[i] >= loHz && frequencies[i] <= hiHz && matrix[t][i] > maxMag) {
-          maxMag = matrix[t][i];
+      const rawAmplitudes = new Float32Array(times.length);
+      for (let t = 0; t < times.length; t++) {
+        let maxMag = 0;
+        for (let k = lo; k <= hi; k++) {
+          if (matrix[t][k] > maxMag) maxMag = matrix[t][k];
+        }
+        rawAmplitudes[t] = maxMag;
+      }
+
+      const amplitudes = smoothArray(rawAmplitudes, 1);
+
+      let peakVal = 0, peakIdx = 0;
+      for (let i = 0; i < amplitudes.length; i++) {
+        if (amplitudes[i] > peakVal) { peakVal = amplitudes[i]; peakIdx = i; }
+      }
+
+      let decayRate = null;
+      if (peakVal > 0 && peakIdx < amplitudes.length - 3) {
+        const xs = [], ys = [];
+        for (let i = peakIdx; i < amplitudes.length; i++) {
+          if (amplitudes[i] > peakVal * 0.01) {
+            xs.push(times[i] - times[peakIdx]);
+            ys.push(Math.log(amplitudes[i]));
+          }
+        }
+        if (xs.length >= 3) {
+          let sx = 0, sy = 0, sxx = 0, sxy = 0;
+          const n = xs.length;
+          for (let i = 0; i < n; i++) { sx += xs[i]; sy += ys[i]; sxx += xs[i] * xs[i]; sxy += xs[i] * ys[i]; }
+          const slope = (n * sxy - sx * sy) / (n * sxx - sx * sx);
+          decayRate = Math.round(-slope * 1000) / 1000;
         }
       }
-      rawAmplitudes[t] = maxMag;
+
+      result.push({
+        harmonic: h,
+        hz: Math.round(actualHz * 10) / 10,
+        decayRate,
+        amplitudes: Array.from(amplitudes),
+      });
     }
+    return result;
+  }
 
-    const amplitudes = smoothArray(rawAmplitudes, 1);
+  let harmonics = buildHarmonics(fundamental);
 
-    let peakVal = 0, peakIdx = 0;
-    for (let i = 0; i < amplitudes.length; i++) {
-      if (amplitudes[i] > peakVal) { peakVal = amplitudes[i]; peakIdx = i; }
+  // Octave sanity check: if h=1 peak is >20 dB below h=2, the detected
+  // fundamental is likely an octave too low — re-track at double frequency
+  if (harmonics.length >= 2) {
+    const h1Peak = Math.max(...harmonics[0].amplitudes);
+    const h2Peak = Math.max(...harmonics[1].amplitudes);
+    if (h2Peak > 0 && h1Peak < h2Peak * 0.1) {
+      harmonics = buildHarmonics(fundamental * 2);
     }
-
-    let decayRate = null;
-    if (peakVal > 0 && peakIdx < amplitudes.length - 3) {
-      const xs = [], ys = [];
-      for (let i = peakIdx; i < amplitudes.length; i++) {
-        if (amplitudes[i] > peakVal * 0.01) {
-          xs.push(times[i] - times[peakIdx]);
-          ys.push(Math.log(amplitudes[i]));
-        }
-      }
-      if (xs.length >= 3) {
-        let sx = 0, sy = 0, sxx = 0, sxy = 0;
-        const n = xs.length;
-        for (let i = 0; i < n; i++) { sx += xs[i]; sy += ys[i]; sxx += xs[i] * xs[i]; sxy += xs[i] * ys[i]; }
-        const slope = (n * sxy - sx * sy) / (n * sxx - sx * sx);
-        decayRate = Math.round(-slope * 1000) / 1000;
-      }
-    }
-
-    harmonics.push({
-      harmonic: h,
-      hz: Math.round(actualHz * 10) / 10,
-      decayRate,
-      amplitudes: Array.from(amplitudes),
-    });
   }
 
   return { times: Array.from(times), harmonics };
