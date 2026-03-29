@@ -5,6 +5,16 @@
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
 const BIN_COLORS = { bass: '#3b82f6', mid: '#10b981', highmid: '#f59e0b', uppermid: '#ef4444', presence: '#8b5cf6', brillance: '#ec4899' };
 
+function themeColors() {
+  const dark = document.documentElement.getAttribute('data-theme') !== 'light';
+  return {
+    axis:  dark ? '#475569' : '#cbd5e1',
+    grid:  dark ? '#334155' : '#e2e8f0',
+    label: dark ? '#94a3b8' : '#64748b',
+    text:  dark ? '#e2e8f0' : '#1a1d2e',
+  };
+}
+
 function safeMax(arr) {
   let max = -Infinity;
   for (let i = 0; i < arr.length; i++) {
@@ -72,7 +82,8 @@ function drawRefLines(ctx, referenceFreqs, ox, plotW, top, plotH) {
 }
 
 function drawFreqTicks(ctx, ox, plotW, top, plotH) {
-  ctx.fillStyle = '#94a3b8';
+  const tc = themeColors();
+  ctx.fillStyle = tc.label;
   ctx.font = '10px Inter, system-ui, sans-serif';
   for (const f of FREQ_TICKS) {
     const x = freqToX(f, ox, plotW);
@@ -90,23 +101,24 @@ function setupCanvas(canvas, title) {
   ctx.scale(dpr, dpr);
   ctx.clearRect(0, 0, rect.width, rect.height);
 
-  // Title
-  ctx.fillStyle = '#e2e8f0';
-  ctx.font = 'bold 14px Inter, system-ui, sans-serif';
-  ctx.fillText(title, 12, 22);
+  const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+  ctx.fillStyle = isDark ? '#e2e8f0' : '#1a1d2e';
+  ctx.font = 'bold 13px Inter, system-ui, sans-serif';
+  ctx.fillText(title, 12, 20);
 
-  return { ctx, w: rect.width, h: rect.height };
+  return { ctx, w: rect.width, h: rect.height, isDark };
 }
 
 export function drawWaveform(canvas, samples, sr, title = 'Waveform') {
   const { ctx, w, h } = setupCanvas(canvas, title);
+  const tc = themeColors();
   const top = 36, bot = 30;
   const plotH = h - top - bot;
   const plotW = w - 50;
   const ox = 40;
 
   // Axes
-  ctx.strokeStyle = '#475569';
+  ctx.strokeStyle = tc.axis;
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(ox, top);
@@ -115,7 +127,7 @@ export function drawWaveform(canvas, samples, sr, title = 'Waveform') {
   ctx.stroke();
 
   // Labels
-  ctx.fillStyle = '#94a3b8';
+  ctx.fillStyle = tc.label;
   ctx.font = '11px Inter, system-ui, sans-serif';
   ctx.fillText('Time (s)', ox + plotW / 2 - 20, h - 4);
   ctx.save();
@@ -147,7 +159,7 @@ export function drawWaveform(canvas, samples, sr, title = 'Waveform') {
   ctx.stroke();
 
   // Time ticks
-  ctx.fillStyle = '#94a3b8';
+  ctx.fillStyle = tc.label;
   ctx.font = '10px Inter, system-ui, sans-serif';
   for (let t = 0; t <= duration; t += Math.max(0.5, Math.round(duration / 6))) {
     const x = ox + (t / duration) * plotW;
@@ -178,10 +190,11 @@ export function drawFFT(canvas, frequencies, magnitudes, title = 'Frequency Spec
     return top + plotH - ((clamped - dbFloor) / rangeDb) * plotH;
   }
 
+  const tc = themeColors();
   drawRefLines(ctx, referenceFreqs, ox, plotW, top, plotH);
 
   // Axes
-  ctx.strokeStyle = '#475569';
+  ctx.strokeStyle = tc.axis;
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(ox, top);
@@ -192,18 +205,18 @@ export function drawFFT(canvas, frequencies, magnitudes, title = 'Frequency Spec
   // dB grid
   for (let db = 0; db >= dbFloor; db -= 10) {
     const y = top + plotH - ((db - dbFloor) / rangeDb) * plotH;
-    ctx.strokeStyle = '#334155';
+    ctx.strokeStyle = tc.grid;
     ctx.lineWidth = 0.5;
     ctx.beginPath();
     ctx.moveTo(ox, y);
     ctx.lineTo(ox + plotW, y);
     ctx.stroke();
-    ctx.fillStyle = '#94a3b8';
+    ctx.fillStyle = tc.label;
     ctx.font = '10px Inter, system-ui, sans-serif';
     ctx.fillText(`${db}`, ox - 28, y + 4);
   }
 
-  ctx.fillStyle = '#94a3b8';
+  ctx.fillStyle = tc.label;
   ctx.font = '11px Inter, system-ui, sans-serif';
   ctx.fillText('Frequency (Hz)', ox + plotW / 2 - 35, h - 4);
   ctx.save();
@@ -214,7 +227,7 @@ export function drawFFT(canvas, frequencies, magnitudes, title = 'Frequency Spec
 
   // Spectrum curve (log-x)
   ctx.strokeStyle = color;
-  ctx.lineWidth = 1;
+  ctx.lineWidth = 1.2;
   ctx.beginPath();
   let started = false;
   for (let i = 0; i < frequencies.length; i++) {
@@ -233,6 +246,7 @@ export function drawFFT(canvas, frequencies, magnitudes, title = 'Frequency Spec
 
 export function drawBinPowers(canvas, binPowers, title = 'Frequency Bin Power') {
   const { ctx, w, h } = setupCanvas(canvas, title);
+  const tc = themeColors();
   const top = 36, bot = 36;
   const plotH = h - top - bot;
   const plotW = w - 60;
@@ -243,7 +257,7 @@ export function drawBinPowers(canvas, binPowers, title = 'Frequency Bin Power') 
   const maxVal = Math.max(safeMax(vals), 1);
   const barW = plotW / bins.length - 8;
 
-  ctx.strokeStyle = '#475569';
+  ctx.strokeStyle = tc.axis;
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(ox, top);
@@ -257,11 +271,11 @@ export function drawBinPowers(canvas, binPowers, title = 'Frequency Bin Power') 
     ctx.fillStyle = BIN_COLORS[b] || COLORS[i];
     ctx.fillRect(x, top + plotH - barH, barW, barH);
 
-    ctx.fillStyle = '#e2e8f0';
+    ctx.fillStyle = tc.text;
     ctx.font = '10px Inter, system-ui, sans-serif';
     ctx.fillText(`${vals[i]}%`, x + barW / 2 - 12, top + plotH - barH - 4);
 
-    ctx.fillStyle = '#94a3b8';
+    ctx.fillStyle = tc.label;
     ctx.font = '10px Inter, system-ui, sans-serif';
     ctx.save();
     ctx.translate(x + barW / 2 + 3, top + plotH + 14);
@@ -273,12 +287,13 @@ export function drawBinPowers(canvas, binPowers, title = 'Frequency Bin Power') 
 export function drawDamping(canvas, envelope, times, title = 'Amplitude Decay') {
   if (!envelope || !times || envelope.length < 2) return;
   const { ctx, w, h } = setupCanvas(canvas, title);
+  const tc = themeColors();
   const top = 36, bot = 30;
   const plotH = h - top - bot;
   const plotW = w - 50;
   const ox = 40;
 
-  ctx.strokeStyle = '#475569';
+  ctx.strokeStyle = tc.axis;
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(ox, top);
@@ -286,7 +301,7 @@ export function drawDamping(canvas, envelope, times, title = 'Amplitude Decay') 
   ctx.lineTo(ox + plotW, top + plotH);
   ctx.stroke();
 
-  ctx.fillStyle = '#94a3b8';
+  ctx.fillStyle = tc.label;
   ctx.font = '11px Inter, system-ui, sans-serif';
   ctx.fillText('Time (s)', ox + plotW / 2 - 20, h - 4);
 
@@ -331,8 +346,10 @@ export function drawFFTOverlay(canvas, analyses, referenceFreqs = null) {
 
   drawRefLines(ctx, referenceFreqs, ox, plotW, top, plotH);
 
+  const tc = themeColors();
+
   // Axes
-  ctx.strokeStyle = '#475569';
+  ctx.strokeStyle = tc.axis;
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(ox, top);
@@ -343,18 +360,18 @@ export function drawFFTOverlay(canvas, analyses, referenceFreqs = null) {
   // dB grid
   for (let db = 0; db >= dbFloor; db -= 10) {
     const y = top + plotH - ((db - dbFloor) / rangeDb) * plotH;
-    ctx.strokeStyle = '#334155';
+    ctx.strokeStyle = tc.grid;
     ctx.lineWidth = 0.5;
     ctx.beginPath();
     ctx.moveTo(ox, y);
     ctx.lineTo(ox + plotW, y);
     ctx.stroke();
-    ctx.fillStyle = '#94a3b8';
+    ctx.fillStyle = tc.label;
     ctx.font = '10px Inter, system-ui, sans-serif';
     ctx.fillText(`${db}`, ox - 28, y + 4);
   }
 
-  ctx.fillStyle = '#94a3b8';
+  ctx.fillStyle = tc.label;
   ctx.font = '11px Inter, system-ui, sans-serif';
   ctx.fillText('Frequency (Hz)', ox + plotW / 2 - 35, h - 18);
 
@@ -384,7 +401,7 @@ export function drawFFTOverlay(canvas, analyses, referenceFreqs = null) {
   analyses.forEach((a, ci) => {
     ctx.fillStyle = COLORS[ci % COLORS.length];
     ctx.fillRect(legendX, legendY - 8, 12, 12);
-    ctx.fillStyle = '#e2e8f0';
+    ctx.fillStyle = tc.text;
     ctx.font = '11px Inter, system-ui, sans-serif';
     ctx.fillText(a.name, legendX + 16, legendY + 2);
     legendX += ctx.measureText(a.name).width + 32;
@@ -393,6 +410,7 @@ export function drawFFTOverlay(canvas, analyses, referenceFreqs = null) {
 
 export function drawBinPowerCompare(canvas, analyses) {
   const { ctx, w, h } = setupCanvas(canvas, 'Frequency Bin Power Comparison');
+  const tc = themeColors();
   const top = 36, bot = 44;
   const plotH = h - top - bot;
   const plotW = w - 60;
@@ -410,7 +428,7 @@ export function drawBinPowerCompare(canvas, analyses) {
     }
   }
 
-  ctx.strokeStyle = '#475569';
+  ctx.strokeStyle = tc.axis;
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(ox, top);
@@ -427,7 +445,7 @@ export function drawBinPowerCompare(canvas, analyses) {
       ctx.fillRect(x, top + plotH - barH, barW - 1, barH);
     });
 
-    ctx.fillStyle = '#94a3b8';
+    ctx.fillStyle = tc.label;
     ctx.font = '10px Inter, system-ui, sans-serif';
     ctx.fillText(b, ox + bi * groupW + groupW / 2 - 15, top + plotH + 14);
   });
@@ -438,7 +456,7 @@ export function drawBinPowerCompare(canvas, analyses) {
   analyses.forEach((a, ci) => {
     ctx.fillStyle = COLORS[ci % COLORS.length];
     ctx.fillRect(legendX, legendY - 8, 12, 12);
-    ctx.fillStyle = '#e2e8f0';
+    ctx.fillStyle = tc.text;
     ctx.font = '11px Inter, system-ui, sans-serif';
     ctx.fillText(a.name, legendX + 16, legendY + 2);
     legendX += ctx.measureText(a.name).width + 32;
@@ -447,6 +465,7 @@ export function drawBinPowerCompare(canvas, analyses) {
 
 export function drawMirrorFFT(canvas, a1, a2) {
   const { ctx, w, h } = setupCanvas(canvas, `Mirror FFT (dB) — ${a1.name} vs ${a2.name}`);
+  const tc = themeColors();
   const top = 36, bot = 30;
   const plotH = h - top - bot;
   const halfH = plotH / 2;
@@ -459,7 +478,7 @@ export function drawMirrorFFT(canvas, a1, a2) {
   const dbFloor = Math.min(floor1, floor2);
   const rangeDb = -dbFloor;
 
-  ctx.strokeStyle = '#475569';
+  ctx.strokeStyle = tc.axis;
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(ox, top);
@@ -468,7 +487,7 @@ export function drawMirrorFFT(canvas, a1, a2) {
   ctx.stroke();
 
   // Zero line
-  ctx.strokeStyle = '#64748b';
+  ctx.strokeStyle = tc.label;
   ctx.setLineDash([4, 4]);
   ctx.beginPath();
   ctx.moveTo(ox, midY);
@@ -477,11 +496,10 @@ export function drawMirrorFFT(canvas, a1, a2) {
   ctx.setLineDash([]);
 
   // dB ticks (each half)
-  ctx.fillStyle = '#94a3b8';
   ctx.font = '9px Inter, system-ui, sans-serif';
   for (let db = 0; db >= dbFloor; db -= 20) {
     const offset = ((db - dbFloor) / rangeDb) * halfH;
-    ctx.strokeStyle = '#334155';
+    ctx.strokeStyle = tc.grid;
     ctx.lineWidth = 0.4;
     ctx.beginPath();
     ctx.moveTo(ox, midY - offset);
@@ -490,7 +508,7 @@ export function drawMirrorFFT(canvas, a1, a2) {
     ctx.lineTo(ox + plotW, midY + offset);
     ctx.stroke();
     if (db < 0) {
-      ctx.fillStyle = '#94a3b8';
+      ctx.fillStyle = tc.label;
       ctx.fillText(`${db}`, ox - 26, midY - offset + 3);
       ctx.fillText(`${db}`, ox - 26, midY + offset + 3);
     }
