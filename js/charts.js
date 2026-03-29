@@ -904,7 +904,8 @@ export function drawHarmonicDecay(canvas, harmonicDecay, title = 'Harmonic Decay
     const color = HARMONIC_COLORS[hi % HARMONIC_COLORS.length];
     ctx.fillStyle = color;
     ctx.fillRect(legendX, legendY - 7, 8, 8);
-    const label = harm.harmonic === 1 ? 'Fund.' : `${harm.harmonic}×`;
+    const hzLabel = harm.hz ? `${Math.round(harm.hz)}` : '';
+    const label = harm.harmonic === 1 ? `Fund.${hzLabel ? ' ' + hzLabel : ''}` : `${harm.harmonic}× ${hzLabel}`;
     ctx.fillStyle = tc.text;
     ctx.fillText(label, legendX + 11, legendY);
     legendX += ctx.measureText(label).width + 20;
