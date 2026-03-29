@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#0f172a" />
+  <meta name="theme-color" content="#0a0f1e" />
   <title>Guitar Tone Tools</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -14,6 +14,10 @@
   <div class="app">
 
     <header>
+      <button id="theme-toggle" class="theme-toggle" aria-label="Toggle light/dark mode">
+        <span class="theme-icon theme-icon-dark">🌙</span>
+        <span class="theme-icon theme-icon-light">☀️</span>
+      </button>
       <div class="logo">🎸</div>
       <h1><span>Guitar</span> Tone Tools</h1>
       <p>Record, analyze, and compare guitar tones — right in your browser.</p>
@@ -95,6 +99,25 @@
 
   </div>
 
+  <script>
+    (function() {
+      var saved = localStorage.getItem('gtt_theme');
+      var prefer = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      var theme = saved || prefer;
+      document.documentElement.setAttribute('data-theme', theme);
+      document.addEventListener('DOMContentLoaded', function() {
+        var btn = document.getElementById('theme-toggle');
+        if (btn) btn.addEventListener('click', function() {
+          var current = document.documentElement.getAttribute('data-theme') || 'dark';
+          var next = current === 'dark' ? 'light' : 'dark';
+          document.documentElement.setAttribute('data-theme', next);
+          localStorage.setItem('gtt_theme', next);
+          var mc = document.querySelector('meta[name="theme-color"]');
+          if (mc) mc.content = next === 'light' ? '#f0f2f8' : '#0a0f1e';
+        });
+      });
+    })();
+  </script>
   <script type="module" src="js/app.js"></script>
 </body>
 </html>
