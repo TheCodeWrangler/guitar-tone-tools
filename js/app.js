@@ -663,7 +663,7 @@ function drawChordDiagram(canvas, diagram) {
   }
 }
 
-function drawStringDiagram(canvas, stringIndex) {
+function drawStringDiagram(canvas, stringIndex, vibration) {
   const dpr = window.devicePixelRatio || 1;
   const W = 180, H = 80;
   canvas.width = W * dpr;
@@ -677,41 +677,87 @@ function drawStringDiagram(canvas, stringIndex) {
   const spacing = (right - left) / 5;
   const labels = ['E', 'A', 'D', 'G', 'B', 'e'];
   const thicknesses = [3.5, 3, 2.5, 2, 1.5, 1.2];
+  const dark = document.documentElement.getAttribute('data-theme') !== 'light';
 
   for (let s = 0; s < 6; s++) {
-    const x = left + s * spacing;
     const isTarget = s === stringIndex;
-    // String line (horizontal, like looking down at the neck)
-    ctx.strokeStyle = isTarget ? '#7c3aed' : '#475569';
-    ctx.lineWidth = thicknesses[s];
-    ctx.beginPath();
-    ctx.moveTo(left - 5, cy - 25 + s * 10);
-    ctx.lineTo(right + 5, cy - 25 + s * 10);
-    ctx.stroke();
+    const y = cy - 25 + s * 10;
+
+    if (isTarget && vibration && vibration.amplitude > 0.05) {
+      const amp = vibration.amplitude;
+      const waveFreq = 2.5 + (5 - s) * 0.4;
+      ctx.strokeStyle = '#7c3aed';
+      ctx.lineWidth = thicknesses[s];
+      ctx.beginPath();
+      for (let px = left - 5; px <= right + 5; px++) {
+        const t = (px - (left - 5)) / (right - left + 10);
+        const envelope = Math.sin(t * Math.PI);
+        const wave = Math.sin(t * waveFreq * Math.PI * 2 + vibration.phase);
+        const dy = amp * envelope * wave;
+        if (px === left - 5) ctx.moveTo(px, y + dy);
+        else ctx.lineTo(px, y + dy);
+      }
+      ctx.stroke();
+    } else {
+      ctx.strokeStyle = isTarget ? '#7c3aed' : (dark ? '#475569' : '#9ca3af');
+      ctx.lineWidth = thicknesses[s];
+      ctx.beginPath();
+      ctx.moveTo(left - 5, y);
+      ctx.lineTo(right + 5, y);
+      ctx.stroke();
+    }
 
     if (isTarget) {
-      // Arrow pointer
       ctx.fillStyle = '#7c3aed';
       ctx.beginPath();
-      const y = cy - 25 + s * 10;
       ctx.arc(right + 14, y, 5, 0, Math.PI * 2);
       ctx.fill();
       ctx.font = '700 11px Inter, sans-serif';
-      ctx.fillStyle = '#e2e8f0';
+      ctx.fillStyle = dark ? '#e2e8f0' : '#2e3039';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
       ctx.fillText('← play this one', right + 22, y);
     }
   }
 
-  // Labels on left
   ctx.textAlign = 'right';
   ctx.textBaseline = 'middle';
   ctx.font = '500 10px Inter, sans-serif';
   for (let s = 0; s < 6; s++) {
-    ctx.fillStyle = s === stringIndex ? '#c4b5fd' : '#64748b';
+    ctx.fillStyle = s === stringIndex ? '#c4b5fd' : (dark ? '#64748b' : '#9ca3af');
     ctx.fillText(labels[s], left - 10, cy - 25 + s * 10);
   }
+}
+
+function createStringVibrator(canvas, stringIndex) {
+  let animId = null;
+  let targetAmp = 0;
+  let currentAmp = 0;
+  let phase = 0;
+  let running = false;
+
+  function loop() {
+    currentAmp += (targetAmp - currentAmp) * 0.18;
+    phase += 0.35;
+    drawStringDiagram(canvas, stringIndex, { amplitude: currentAmp, phase });
+    if (currentAmp > 0.05 || targetAmp > 0) {
+      animId = requestAnimationFrame(loop);
+    } else {
+      currentAmp = 0;
+      drawStringDiagram(canvas, stringIndex);
+      animId = null;
+      running = false;
+    }
+  }
+
+  return {
+    update(rms) {
+      targetAmp = Math.min(rms * 120, 4);
+      if (!running) { running = true; animId = requestAnimationFrame(loop); }
+    },
+    stop() { targetAmp = 0; },
+    destroy() { if (animId) cancelAnimationFrame(animId); animId = null; running = false; },
+  };
 }
 
 function renderWizardStep(autoRecord = false) {
@@ -760,13 +806,17 @@ function renderWizardStep(autoRecord = false) {
 
   // Draw the fingering diagram
   const diagCanvas = $('#wiz-diagram');
+  let stringVibrator = null;
   if (step.type === 'chord' && CHORD_DIAGRAMS[step.id]) {
     drawChordDiagram(diagCanvas, CHORD_DIAGRAMS[step.id]);
   } else if (step.type === 'string' && STRING_DIAGRAMS[step.id]) {
-    drawStringDiagram(diagCanvas, STRING_DIAGRAMS[step.id].stringIndex);
+    const sIdx = STRING_DIAGRAMS[step.id].stringIndex;
+    drawStringDiagram(diagCanvas, sIdx);
+    stringVibrator = createStringVibrator(diagCanvas, sIdx);
   }
 
   async function wizProcessRecording() {
+    if (stringVibrator) stringVibrator.stop();
     wizRecord.textContent = 'Record';
     wizRecord.classList.remove('recording');
     wizLevel.classList.add('hidden');
@@ -819,6 +869,10 @@ function renderWizardStep(autoRecord = false) {
             const threshPct = Math.min(threshold / meterMax, 1) * 100;
             wizLevel.style.setProperty('--threshold-pct', `${threshPct}%`);
             wizLevelLabel.textContent = st === 'listening' ? 'Waiting for sound…' : 'Recording…';
+            if (stringVibrator) {
+              if (st === 'recording') stringVibrator.update(rms);
+              else stringVibrator.stop();
+            }
           },
           async onAutoStop() {
             await wizProcessRecording();
@@ -849,6 +903,7 @@ function renderWizardStep(autoRecord = false) {
 
   wizNext.addEventListener('click', () => {
     if (!stepAnalysis) return;
+    if (stringVibrator) { stringVibrator.destroy(); stringVibrator = null; }
     profileStepResults[profileCurrentStep] = {
       stepId: step.id,
       analysis: stepAnalysis,
