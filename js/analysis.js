@@ -179,12 +179,14 @@ function detectFundamental(samples, sampleRate) {
     }
   }
 
-  // Octave correction: autocorrelation often locks onto the 2nd harmonic.
-  // Check if double the period (half the frequency / one octave lower) has
-  // a reasonably strong correlation — if so, prefer it as the true fundamental.
+  // Octave correction: autocorrelation can lock onto the 2nd harmonic.
+  // Check if double the period (one octave lower) has a strong correlation.
+  // Only step down ONE octave, and require it to be nearly as strong as the
+  // original peak. Going further down causes false drops on high strings
+  // (B3, E4) where every lower octave correlates well.
+  const detectedFreq = sampleRate / bestPeriod;
   const subOctavePeriod = bestPeriod * 2;
-  if (subOctavePeriod < maxPeriod) {
-    // Search a small window around the expected sub-octave period
+  if (subOctavePeriod < maxPeriod && detectedFreq > 100) {
     const searchLo = Math.max(minPeriod, subOctavePeriod - 4);
     const searchHi = Math.min(maxPeriod - 1, subOctavePeriod + 4);
     let subBestCorr = -1;
@@ -195,24 +197,9 @@ function detectFundamental(samples, sampleRate) {
         subBestPeriod = p;
       }
     }
-    // Accept the sub-octave if its correlation is at least 70% of the best
-    if (subBestCorr > bestCorr * 0.70) {
+    // Require 85% strength — conservative to avoid over-correction
+    if (subBestCorr > bestCorr * 0.85) {
       bestPeriod = subBestPeriod;
-      bestCorr = subBestCorr;
-      
-      // Check one more octave down (for cases where it locked onto 3rd/4th harmonic)
-      const subSubPeriod = bestPeriod * 2;
-      if (subSubPeriod < maxPeriod) {
-        const lo2 = Math.max(minPeriod, subSubPeriod - 4);
-        const hi2 = Math.min(maxPeriod - 1, subSubPeriod + 4);
-        let ss = -1, sp = subSubPeriod;
-        for (let p = lo2; p <= hi2; p++) {
-          if (correlations[p] > ss) { ss = correlations[p]; sp = p; }
-        }
-        if (ss > bestCorr * 0.65) {
-          bestPeriod = sp;
-        }
-      }
     }
   }
 
