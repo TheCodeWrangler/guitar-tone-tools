@@ -2,7 +2,7 @@
  * Main application controller — wires the UI to the recorder, analysis, and scoring engines.
  * All guitar data is persisted in localStorage so comparisons survive reloads.
  */
-import { startRecording, stopRecording, isRecording, loadAudioFile } from './recorder.js';
+import { openMic, closeMic, finishRecording, manualStop, getState, loadAudioFile } from './recorder.js';
 import { analyzeAudio } from './analysis.js';
 import {
   computeScores, hzToNote, CHORD_PRESETS, SCORE_LABELS, SCORE_DESCRIPTIONS, scoreGrade,
@@ -173,43 +173,71 @@ function showDetectedNote(analysis) {
   noteDetection.innerHTML = html;
 }
 
+const levelMeter     = $('#level-meter');
+const levelFill      = levelMeter.querySelector('.level-meter-fill');
+const levelLabel     = levelMeter.querySelector('.level-meter-label');
+
+async function processRecording() {
+  btnRecord.textContent = 'Record';
+  btnRecord.classList.remove('recording');
+  levelMeter.classList.add('hidden');
+  recStatus.textContent = 'Processing audio...';
+  try {
+    const { audioBuffer, blob } = await finishRecording();
+    closeMic();
+    currentBlob = blob;
+    audioPlayer.src = URL.createObjectURL(blob);
+    audioPlayer.classList.remove('hidden');
+    await new Promise(r => setTimeout(r, 50));
+    recStatus.textContent = 'Analyzing tone...';
+    await new Promise(r => setTimeout(r, 50));
+    currentAnalysis = analyzeAudio(audioBuffer);
+    currentAnalysis.detectedNote = hzToNote(currentAnalysis.fundamental);
+    currentAnalysis.scores = computeScores(currentAnalysis);
+    showDetectedNote(currentAnalysis);
+    btnAnalyze.classList.remove('hidden');
+    recStatus.textContent = `Recorded ${currentAnalysis.duration}s — select what you played, name your guitar, and click Save & Score.`;
+    setTimeout(() => recStatus.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
+  } catch (err) {
+    closeMic();
+    recStatus.textContent = `Error processing recording: ${err.message}`;
+    console.error(err);
+    recStatus.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
 btnRecord.addEventListener('click', async () => {
-  if (isRecording()) {
-    btnRecord.textContent = 'Record';
-    btnRecord.classList.remove('recording');
-    recStatus.textContent = 'Processing audio...';
-    try {
-      const { audioBuffer, blob } = await stopRecording();
-      currentBlob = blob;
-      audioPlayer.src = URL.createObjectURL(blob);
-      audioPlayer.classList.remove('hidden');
-      await new Promise(r => setTimeout(r, 50));
-      recStatus.textContent = 'Analyzing tone...';
-      await new Promise(r => setTimeout(r, 50));
-      currentAnalysis = analyzeAudio(audioBuffer);
-      currentAnalysis.detectedNote = hzToNote(currentAnalysis.fundamental);
-      currentAnalysis.scores = computeScores(currentAnalysis);
-      showDetectedNote(currentAnalysis);
-      btnAnalyze.classList.remove('hidden');
-      recStatus.textContent = `Recorded ${currentAnalysis.duration}s — select what you played, name your guitar, and click Save & Score.`;
-      setTimeout(() => recStatus.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
-    } catch (err) {
-      recStatus.textContent = `Error processing recording: ${err.message}`;
-      console.error(err);
-      recStatus.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
+  const recState = getState();
+  if (recState === 'listening' || recState === 'recording') {
+    // Manual stop
+    manualStop();
+    await processRecording();
   } else {
     try {
-      await startRecording();
-      btnRecord.textContent = 'Stop';
-      btnRecord.classList.add('recording');
-      recStatus.textContent = 'Recording... play your chord and click Stop when done.';
       audioPlayer.classList.add('hidden');
       btnAnalyze.classList.add('hidden');
       noteDetection.classList.add('hidden');
       analysisOut.innerHTML = '';
+      levelMeter.classList.remove('hidden');
+
+      await openMic({
+        onLevel(rms, st) {
+          const pct = Math.min(rms / 0.15, 1) * 100;
+          levelFill.style.width = `${pct}%`;
+          levelFill.className = 'level-meter-fill' + (st === 'recording' ? ' active' : '');
+          levelLabel.textContent = st === 'listening' ? 'Waiting for sound…' : 'Recording…';
+        },
+        async onAutoStop() {
+          await processRecording();
+        },
+      });
+
+      btnRecord.textContent = 'Stop';
+      btnRecord.classList.add('recording');
+      recStatus.textContent = 'Listening — pluck the string or strum the chord…';
     } catch (err) {
       recStatus.textContent = 'Microphone access denied. Please allow mic access and try again.';
+      levelMeter.classList.add('hidden');
     }
   }
 });
@@ -402,6 +430,7 @@ function renderWizardStep() {
         <button id="wiz-record" class="btn primary">Record</button>
         <button id="wiz-rerecord" class="btn hidden">Re-record</button>
       </div>
+      <div id="wiz-level" class="level-meter hidden"><div class="level-meter-fill"></div><span class="level-meter-label"></span></div>
       <div id="wiz-status" class="wizard-status"></div>
       <div id="wiz-note" class="hidden"></div>
       <audio id="wiz-audio" controls class="hidden"></audio>
@@ -420,46 +449,72 @@ function renderWizardStep() {
   const wizAudio    = $('#wiz-audio');
   const wizNext     = $('#wiz-next');
 
+  const wizLevel    = $('#wiz-level');
+  const wizLevelFill  = wizLevel.querySelector('.level-meter-fill');
+  const wizLevelLabel = wizLevel.querySelector('.level-meter-label');
   let stepAnalysis = null;
 
-  async function doRecord() {
-    if (isRecording()) {
-      wizRecord.textContent = 'Record';
-      wizRecord.classList.remove('recording');
-      wizStatus.textContent = 'Processing audio...';
-      try {
-        const { audioBuffer, blob } = await stopRecording();
-        profileRecordingBlob = blob;
-        wizAudio.src = URL.createObjectURL(blob);
-        wizAudio.classList.remove('hidden');
-        await new Promise(r => setTimeout(r, 50));
-        wizStatus.textContent = 'Analyzing tone...';
-        await new Promise(r => setTimeout(r, 50));
-        stepAnalysis = analyzeAudio(audioBuffer);
-        stepAnalysis.detectedNote = hzToNote(stepAnalysis.fundamental);
-        stepAnalysis.scores = computeScores(stepAnalysis);
-        stepAnalysis.name = `${profileNameInput.value.trim()} — ${step.label}`;
+  async function wizProcessRecording() {
+    wizRecord.textContent = 'Record';
+    wizRecord.classList.remove('recording');
+    wizLevel.classList.add('hidden');
+    wizStatus.textContent = 'Processing audio...';
+    try {
+      const { audioBuffer, blob } = await finishRecording();
+      closeMic();
+      profileRecordingBlob = blob;
+      wizAudio.src = URL.createObjectURL(blob);
+      wizAudio.classList.remove('hidden');
+      await new Promise(r => setTimeout(r, 50));
+      wizStatus.textContent = 'Analyzing tone...';
+      await new Promise(r => setTimeout(r, 50));
+      stepAnalysis = analyzeAudio(audioBuffer);
+      stepAnalysis.detectedNote = hzToNote(stepAnalysis.fundamental);
+      stepAnalysis.scores = computeScores(stepAnalysis);
+      stepAnalysis.name = `${profileNameInput.value.trim()} — ${step.label}`;
 
-        renderWizardNoteDetection(stepAnalysis, step, wizNote);
-        wizRerecord.classList.remove('hidden');
-        wizNext.disabled = false;
-        wizStatus.textContent = `Recorded ${stepAnalysis.duration}s — review and continue.`;
-      } catch (err) {
-        wizStatus.textContent = `Error: ${err.message}`;
-        console.error(err);
-      }
+      renderWizardNoteDetection(stepAnalysis, step, wizNote);
+      wizRerecord.classList.remove('hidden');
+      wizNext.disabled = false;
+      wizStatus.textContent = `Recorded ${stepAnalysis.duration}s — review and continue.`;
+    } catch (err) {
+      closeMic();
+      wizStatus.textContent = `Error: ${err.message}`;
+      console.error(err);
+    }
+  }
+
+  async function doRecord() {
+    const recState = getState();
+    if (recState === 'listening' || recState === 'recording') {
+      manualStop();
+      await wizProcessRecording();
     } else {
       try {
-        await startRecording();
-        wizRecord.textContent = 'Stop';
-        wizRecord.classList.add('recording');
-        wizStatus.textContent = 'Recording... play and click Stop when done.';
         wizAudio.classList.add('hidden');
         wizNote.classList.add('hidden');
         wizNext.disabled = true;
         wizRerecord.classList.add('hidden');
+        wizLevel.classList.remove('hidden');
+
+        await openMic({
+          onLevel(rms, st) {
+            const pct = Math.min(rms / 0.15, 1) * 100;
+            wizLevelFill.style.width = `${pct}%`;
+            wizLevelFill.className = 'level-meter-fill' + (st === 'recording' ? ' active' : '');
+            wizLevelLabel.textContent = st === 'listening' ? 'Waiting for sound…' : 'Recording…';
+          },
+          async onAutoStop() {
+            await wizProcessRecording();
+          },
+        });
+
+        wizRecord.textContent = 'Stop';
+        wizRecord.classList.add('recording');
+        wizStatus.textContent = 'Listening — play when ready…';
       } catch (err) {
         wizStatus.textContent = 'Microphone access denied. Please allow mic access.';
+        wizLevel.classList.add('hidden');
       }
     }
   }
