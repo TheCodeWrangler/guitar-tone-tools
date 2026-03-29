@@ -13,7 +13,7 @@ function safeMax(arr) {
   return max;
 }
 
-const DB_FLOOR = -60;
+const DB_FLOOR = -32;
 const LOG_MIN_FREQ = 50;
 const LOG_MAX_FREQ = 5000;
 const LOG_MIN = Math.log10(LOG_MIN_FREQ);
