@@ -1894,6 +1894,137 @@ function renderProfileComparison(selected, container) {
     wrapper.innerHTML = `<h3 class="subsection-title">${p.name}</h3>` + renderScoreCard(p.profile.overall);
     container.appendChild(wrapper);
   }
+
+  // ── Step-by-step chart comparison ────────────────────────────────
+  const stepTitle = document.createElement('h2');
+  stepTitle.className = 'section-title';
+  stepTitle.textContent = 'Step-by-Step Comparison';
+  container.appendChild(stepTitle);
+
+  const stepHint = document.createElement('p');
+  stepHint.style.cssText = 'color:var(--text-dim);font-size:0.85rem;margin-bottom:1rem;';
+  stepHint.textContent = 'Click any step to expand the comparative charts.';
+  container.appendChild(stepHint);
+
+  const stepList = document.createElement('div');
+  stepList.className = 'profile-steps-list';
+  container.appendChild(stepList);
+
+  for (const step of PROFILE_STEPS) {
+    const perGuitar = selected.map(p => {
+      const r = p.profile.stepResults && p.profile.stepResults.find(sr => sr.stepId === step.id);
+      return r ? { name: p.name, analysis: r.analysis } : null;
+    }).filter(Boolean);
+
+    if (perGuitar.length < 2) continue;
+
+    const item = document.createElement('div');
+    item.className = 'profile-step-item';
+
+    const scoreInfo = perGuitar.map(g => {
+      const sc = g.analysis.scores ? g.analysis.scores.overall : '—';
+      const color = typeof sc === 'number' ? (sc >= 75 ? 'var(--green)' : sc >= 50 ? 'var(--amber)' : 'var(--danger)') : '';
+      return `<span style="color:${color};font-weight:700;margin-left:0.4rem;">${g.name}: ${sc}</span>`;
+    }).join('  ');
+
+    item.innerHTML = `
+      <div class="profile-step-header" data-toggle="cmp-step-${step.id}">
+        <span class="profile-step-num">${step.id}</span>
+        <span class="profile-step-name">${step.label}</span>
+        <span style="font-size:0.8rem;">${scoreInfo}</span>
+        <span class="profile-step-toggle">▸</span>
+      </div>
+      <div id="cmp-step-${step.id}" class="profile-step-detail hidden"></div>`;
+    stepList.appendChild(item);
+
+    const header = item.querySelector('.profile-step-header');
+    header.addEventListener('click', () => {
+      const detail = item.querySelector(`#cmp-step-${step.id}`);
+      const toggle = header.querySelector('.profile-step-toggle');
+      if (detail.classList.contains('hidden')) {
+        detail.classList.remove('hidden');
+        toggle.textContent = '▾';
+        if (!detail.dataset.rendered) {
+          detail.dataset.rendered = 'true';
+          renderStepComparison(perGuitar, step, detail);
+        }
+      } else {
+        detail.classList.add('hidden');
+        toggle.textContent = '▸';
+      }
+    });
+  }
+}
+
+function renderStepComparison(perGuitar, step, container) {
+  const analyses = perGuitar.map(g => ({ ...g.analysis, name: g.name }));
+  const refFreqs = buildRefFreqsForStep(step);
+
+  // Score comparison table for this step
+  const hasScores = analyses.every(a => a.scores);
+  if (hasScores) {
+    const scoreKeys = Object.keys(SCORE_LABELS);
+    const bests = {};
+    for (const key of scoreKeys) bests[key] = Math.max(...analyses.map(a => a.scores[key]));
+
+    const table = document.createElement('table');
+    table.className = 'compare-table';
+    let thead = `<tr><th>Guitar</th>`;
+    for (const key of scoreKeys) thead += `<th>${SCORE_LABELS[key]}</th>`;
+    thead += `</tr>`;
+
+    let tbody = '';
+    for (const a of analyses) {
+      tbody += `<tr><td><strong>${a.name}</strong></td>`;
+      for (const key of scoreKeys) {
+        const val = a.scores[key];
+        const isBest = val === bests[key] && analyses.length > 1;
+        const color = val >= 75 ? 'var(--green)' : val >= 50 ? 'var(--amber)' : 'var(--danger)';
+        tbody += `<td style="color:${color};${isBest ? 'font-weight:700' : ''}">${val}${isBest ? ' ★' : ''}</td>`;
+      }
+      tbody += `</tr>`;
+    }
+    table.innerHTML = `<thead>${thead}</thead><tbody>${tbody}</tbody>`;
+    container.appendChild(table);
+  }
+
+  // Comparison charts
+  const chartDefs = [
+    (c) => drawFFTOverlay(c, analyses, refFreqs),
+    (c) => drawBinPowerCompare(c, analyses),
+  ];
+
+  if (analyses.length === 2) {
+    chartDefs.push((c) => drawMirrorFFT(c, analyses[0], analyses[1]));
+  }
+
+  const hasDecay = analyses.filter(a => a.harmonicDecay && a.harmonicDecay.harmonics && a.harmonicDecay.harmonics.length).length >= 2;
+  if (hasDecay) {
+    chartDefs.push((c) => drawDecayRateCompare(c, analyses));
+    chartDefs.push((c) => drawHarmonicDecayCompare(c, analyses));
+  }
+
+  for (const draw of chartDefs) {
+    const canvas = document.createElement('canvas');
+    canvas.className = 'chart-canvas';
+    container.appendChild(canvas);
+    requestAnimationFrame(() => draw(canvas));
+  }
+
+  // Side-by-side spectrograms
+  const specGuitars = analyses.filter(a => a.stft);
+  if (specGuitars.length >= 2) {
+    const specTitle = document.createElement('h4');
+    specTitle.className = 'subsection-title';
+    specTitle.textContent = 'Spectrograms';
+    container.appendChild(specTitle);
+    for (const a of specGuitars) {
+      const sc = document.createElement('canvas');
+      sc.className = 'chart-canvas-tall';
+      container.appendChild(sc);
+      requestAnimationFrame(() => drawSpectrogram(sc, a.stft, `${a.name} — Spectrogram`, refFreqs));
+    }
+  }
 }
 
 function runComparison(selected, output, warnDiv) {
