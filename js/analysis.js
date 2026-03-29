@@ -352,21 +352,63 @@ function downsampleSTFT(stft, maxFrames, maxFreqHz, maxBins) {
 
 // ── Harmonic Decay Tracking ───────────────────────────────────────────
 
+function findActualPeak(frequencies, magnitudes, targetHz, searchRadius) {
+  const loHz = targetHz - searchRadius;
+  const hiHz = targetHz + searchRadius;
+  let bestMag = 0, bestIdx = -1;
+  for (let i = 0; i < frequencies.length; i++) {
+    if (frequencies[i] >= loHz && frequencies[i] <= hiHz && magnitudes[i] > bestMag) {
+      bestMag = magnitudes[i];
+      bestIdx = i;
+    }
+  }
+  return bestIdx >= 0 ? frequencies[bestIdx] : targetHz;
+}
+
+function smoothArray(arr, radius) {
+  const out = new Float32Array(arr.length);
+  for (let i = 0; i < arr.length; i++) {
+    let sum = 0, count = 0;
+    for (let j = Math.max(0, i - radius); j <= Math.min(arr.length - 1, i + radius); j++) {
+      sum += arr[j];
+      count++;
+    }
+    out[i] = sum / count;
+  }
+  return out;
+}
+
 function trackHarmonicDecay(stft, fundamental) {
   if (!fundamental || fundamental < 20) return null;
 
   const { times, frequencies, matrix } = stft;
   const maxHarmonics = 8;
-  const tolerance = 0.05;
   const harmonics = [];
 
-  for (let h = 1; h <= maxHarmonics; h++) {
-    const targetHz = fundamental * h;
-    if (targetHz > 5000) break;
-    const loHz = targetHz * (1 - tolerance);
-    const hiHz = targetHz * (1 + tolerance);
+  // Build an average magnitude spectrum from the first few frames (attack)
+  // to snap each harmonic to its actual spectral peak
+  const attackFrames = Math.min(5, times.length);
+  const avgSpectrum = new Float32Array(frequencies.length);
+  for (let t = 0; t < attackFrames; t++) {
+    for (let i = 0; i < frequencies.length; i++) avgSpectrum[i] += matrix[t][i];
+  }
+  for (let i = 0; i < avgSpectrum.length; i++) avgSpectrum[i] /= attackFrames;
 
-    const amplitudes = new Float32Array(times.length);
+  for (let h = 1; h <= maxHarmonics; h++) {
+    const nominalHz = fundamental * h;
+    if (nominalHz > 5000) break;
+
+    // Guitar strings are inharmonic — overtones drift sharp.
+    // Use a wider search window that grows with harmonic number.
+    const searchRadius = Math.max(nominalHz * 0.08, 15) + h * 3;
+    const actualHz = findActualPeak(frequencies, avgSpectrum, nominalHz, searchRadius);
+
+    // Track amplitude at the snapped frequency with a tight window
+    const trackRadius = Math.max(actualHz * 0.03, 8);
+    const loHz = actualHz - trackRadius;
+    const hiHz = actualHz + trackRadius;
+
+    const rawAmplitudes = new Float32Array(times.length);
     for (let t = 0; t < times.length; t++) {
       let maxMag = 0;
       for (let i = 0; i < frequencies.length; i++) {
@@ -374,8 +416,10 @@ function trackHarmonicDecay(stft, fundamental) {
           maxMag = matrix[t][i];
         }
       }
-      amplitudes[t] = maxMag;
+      rawAmplitudes[t] = maxMag;
     }
+
+    const amplitudes = smoothArray(rawAmplitudes, 1);
 
     let peakVal = 0, peakIdx = 0;
     for (let i = 0; i < amplitudes.length; i++) {
@@ -402,7 +446,7 @@ function trackHarmonicDecay(stft, fundamental) {
 
     harmonics.push({
       harmonic: h,
-      hz: Math.round(targetHz * 100) / 100,
+      hz: Math.round(actualHz * 10) / 10,
       decayRate,
       amplitudes: Array.from(amplitudes),
     });
