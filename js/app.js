@@ -134,8 +134,32 @@ function serialiseProfileCompact(prof) {
   };
 }
 
+function downsampleFFT(freqs, mags, maxFreq, maxBins) {
+  if (!freqs || !mags) return { frequencies: [], magnitudes: [] };
+  let cutoff = freqs.length;
+  for (let i = 0; i < freqs.length; i++) {
+    if (freqs[i] > maxFreq) { cutoff = i; break; }
+  }
+  if (cutoff <= maxBins) {
+    return {
+      frequencies: Array.from(freqs.slice(0, cutoff)),
+      magnitudes: Array.from(mags.slice(0, cutoff)),
+    };
+  }
+  const step = cutoff / maxBins;
+  const outF = new Array(maxBins);
+  const outM = new Array(maxBins);
+  for (let i = 0; i < maxBins; i++) {
+    const idx = Math.min(Math.round(i * step), cutoff - 1);
+    outF[i] = freqs[idx];
+    outM[i] = mags[idx];
+  }
+  return { frequencies: outF, magnitudes: outM };
+}
+
 function serialiseAnalysisCompact(a) {
   if (!a) return a;
+  const fft = downsampleFFT(a.fft?.frequencies, a.fft?.magnitudes, 6000, 512);
   return {
     name: a.name,
     duration: a.duration,
@@ -144,10 +168,7 @@ function serialiseAnalysisCompact(a) {
     detectedNote: a.detectedNote,
     scores: a.scores,
     binPowers: a.binPowers,
-    fft: {
-      frequencies: Array.from((a.fft?.frequencies || []).slice(0, 500)),
-      magnitudes: Array.from((a.fft?.magnitudes || []).slice(0, 500)),
-    },
+    fft,
     waveform: { samples: Array.from((a.waveform?.samples || []).slice(0, 2000)), sr: a.waveform?.sr || 44100 },
     damping: {
       envelope: Array.from((a.damping?.envelope || []).slice(0, 100)),
@@ -158,21 +179,10 @@ function serialiseAnalysisCompact(a) {
 
 function serialiseAnalysis(a) {
   if (!a || !a.fft) return a;
-
-  // Cap stored FFT to 5kHz range to save space (especially for profiles with 10 recordings)
-  let freqs = a.fft.frequencies;
-  let mags = a.fft.magnitudes;
-  let maxIdx = freqs.length;
-  for (let i = 0; i < freqs.length; i++) {
-    if (freqs[i] > 6000) { maxIdx = i; break; }
-  }
-
+  const fft = downsampleFFT(a.fft.frequencies, a.fft.magnitudes, 6000, 2048);
   return {
     ...a,
-    fft: {
-      frequencies: Array.from(freqs.slice(0, maxIdx)),
-      magnitudes: Array.from(mags.slice(0, maxIdx)),
-    },
+    fft,
     waveform: {
       samples: Array.from(a.waveform.samples.slice(0, 10000)),
       sr: a.waveform.sr,

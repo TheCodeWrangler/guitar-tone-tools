@@ -283,17 +283,7 @@ export function analyzeAudio(audioBuffer) {
   const maxStoredSamples = sr * 10;
   const samples = raw.length > maxStoredSamples ? raw.subarray(0, maxStoredSamples) : raw;
 
-  // Use a ~1s window starting at onset for the FFT so high strings
-  // that decay quickly aren't diluted by seconds of silence.
-  const peak = arrayMax(samples.subarray(0, Math.min(samples.length, sr)));
-  let fftOnset = 0;
-  for (let i = 0; i < samples.length; i++) {
-    if (Math.abs(samples[i]) > peak * 0.1) { fftOnset = i; break; }
-  }
-  const fftWindowLen = Math.min(Math.floor(sr * 1.0), samples.length - fftOnset);
-  const fftSamples = samples.subarray(fftOnset, fftOnset + fftWindowLen);
-
-  const { frequencies, magnitudes } = computeFFTFast(fftSamples, sr);
+  const { frequencies, magnitudes } = computeFFTFast(samples, sr);
   const fundamental = Math.round(detectFundamental(samples, sr) * 100) / 100;
   const binPowers = computeBinPowers(frequencies, magnitudes);
   const { dampingFactor, envelope, times } = computeDamping(samples, sr);
