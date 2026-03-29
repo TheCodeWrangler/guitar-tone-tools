@@ -211,7 +211,7 @@ function serialiseAnalysisCompact(a) {
       envelope: Array.from((a.damping?.envelope || []).slice(0, 100)),
       times: Array.from((a.damping?.times || []).slice(0, 100)),
     },
-    stft: serialiseSTFT(a.stft, 40, 64),
+    stft: serialiseSTFT(a.stft, 40, 192),
     harmonicDecay: serialiseHarmonicDecay(a.harmonicDecay, 40),
   };
 }
@@ -230,7 +230,7 @@ function serialiseAnalysis(a) {
       envelope: Array.from(a.damping.envelope),
       times: Array.from(a.damping.times),
     },
-    stft: serialiseSTFT(a.stft, 80, 128),
+    stft: serialiseSTFT(a.stft, 80, 384),
     harmonicDecay: serialiseHarmonicDecay(a.harmonicDecay),
   };
 }

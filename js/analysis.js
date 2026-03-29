@@ -277,12 +277,12 @@ function computeDamping(samples, sampleRate) {
 // ── STFT (Short-Time Fourier Transform) ───────────────────────────────
 
 function computeSTFT(samples, sampleRate) {
-  const windowSize = 2048;
-  const hopSize = 1024;
+  const windowSize = 6144;
+  const hopSize = 3072;
+  const fftSize = 8192; // next power of 2 for radix-2 FFT
   const maxN = Math.min(samples.length, Math.floor(sampleRate * 5));
   const win = hann(windowSize);
   const numFrames = Math.max(1, Math.floor((maxN - windowSize) / hopSize) + 1);
-  const fftSize = windowSize;
   const numBins = fftSize >> 1;
   const freqStep = sampleRate / fftSize;
 
@@ -426,7 +426,7 @@ export function analyzeAudio(audioBuffer) {
   const { dampingFactor, envelope, times } = computeDamping(samples, sr);
 
   const stftFull = computeSTFT(samples, sr);
-  const stft = downsampleSTFT(stftFull, 80, 5000, 128);
+  const stft = downsampleSTFT(stftFull, 80, 5000, 384);
   const harmonicDecay = trackHarmonicDecay(stftFull, fundamental);
 
   const displayStep = Math.max(1, Math.floor(samples.length / 20000));
