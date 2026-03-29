@@ -54,7 +54,62 @@ function saveProfiles() {
     timestamp: p.timestamp,
     profile: serialiseProfile(p.profile),
   }));
-  localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(serialisable));
+  const json = JSON.stringify(serialisable);
+  try {
+    localStorage.setItem(PROFILE_STORAGE_KEY, json);
+    return true;
+  } catch (e) {
+    // localStorage full — try with more aggressive trimming
+    const compact = profiles.map(p => ({
+      id: p.id,
+      name: p.name,
+      timestamp: p.timestamp,
+      profile: serialiseProfileCompact(p.profile),
+    }));
+    try {
+      localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(compact));
+      return true;
+    } catch (e2) {
+      throw new Error('Storage full — could not save. Try deleting old profiles from the Library.');
+    }
+  }
+}
+
+function serialiseProfileCompact(prof) {
+  return {
+    overall: prof.overall,
+    stringScores: prof.stringScores,
+    chordScores: prof.chordScores,
+    categoryScores: prof.categoryScores,
+    strengths: prof.strengths,
+    weaknesses: prof.weaknesses,
+    stepResults: prof.stepResults.map(r => ({
+      stepId: r.stepId,
+      analysis: serialiseAnalysisCompact(r.analysis),
+    })),
+  };
+}
+
+function serialiseAnalysisCompact(a) {
+  if (!a) return a;
+  return {
+    name: a.name,
+    duration: a.duration,
+    fundamental: a.fundamental,
+    dampingFactor: a.dampingFactor,
+    detectedNote: a.detectedNote,
+    scores: a.scores,
+    binPowers: a.binPowers,
+    fft: {
+      frequencies: Array.from((a.fft?.frequencies || []).slice(0, 500)),
+      magnitudes: Array.from((a.fft?.magnitudes || []).slice(0, 500)),
+    },
+    waveform: { samples: Array.from((a.waveform?.samples || []).slice(0, 2000)), sr: a.waveform?.sr || 44100 },
+    damping: {
+      envelope: Array.from((a.damping?.envelope || []).slice(0, 100)),
+      times: Array.from((a.damping?.times || []).slice(0, 100)),
+    },
+  };
 }
 
 function serialiseAnalysis(a) {
@@ -767,16 +822,28 @@ function finishProfile() {
     };
     profiles.push(entry);
 
+    let saveError = null;
     try {
       saveProfiles();
     } catch (storageErr) {
+      saveError = storageErr.message;
       console.warn('Could not save to localStorage:', storageErr);
     }
 
     wizardContent.classList.add('hidden');
     wizardContent.innerHTML = '';
     profileReport.classList.remove('hidden');
-    renderProfileReport(profile, name, profileReport, entry.id);
+
+    // Show save status banner before the report
+    if (saveError) {
+      profileReport.innerHTML = `<div class="save-status save-error">⚠ Profile generated but NOT saved: ${saveError}</div>`;
+    } else {
+      profileReport.innerHTML = `<div class="save-status save-ok">✓ Profile saved! View it anytime in the Library tab.</div>`;
+    }
+
+    const reportDiv = document.createElement('div');
+    profileReport.appendChild(reportDiv);
+    renderProfileReport(profile, name, reportDiv, entry.id);
 
     btnStartProfile.disabled = false;
     profileNameInput.disabled = false;
