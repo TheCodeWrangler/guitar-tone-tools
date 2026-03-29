@@ -574,7 +574,7 @@ btnStartProfile.addEventListener('click', () => {
   renderWizardStep();
 });
 
-function drawChordDiagram(canvas, diagram) {
+function drawChordDiagram(canvas, diagram, vibration) {
   const dpr = window.devicePixelRatio || 1;
   const W = 180, H = 200;
   canvas.width = W * dpr;
@@ -584,6 +584,7 @@ function drawChordDiagram(canvas, diagram) {
   const ctx = canvas.getContext('2d');
   ctx.scale(dpr, dpr);
 
+  const dark = document.documentElement.getAttribute('data-theme') !== 'light';
   const { frets, fingers, startFret } = diagram;
   const numStrings = 6;
   const numFrets = 4;
@@ -591,8 +592,8 @@ function drawChordDiagram(canvas, diagram) {
   const stringSpacing = (right - left) / (numStrings - 1);
   const fretSpacing = (bottom - top) / numFrets;
 
-  // Nut (thick bar at top if starting at fret 1)
-  ctx.strokeStyle = '#e2e8f0';
+  // Nut
+  ctx.strokeStyle = dark ? '#e2e8f0' : '#374151';
   ctx.lineWidth = startFret === 1 ? 4 : 1.5;
   ctx.beginPath();
   ctx.moveTo(left, top);
@@ -601,7 +602,7 @@ function drawChordDiagram(canvas, diagram) {
 
   // Fret lines
   ctx.lineWidth = 1;
-  ctx.strokeStyle = '#64748b';
+  ctx.strokeStyle = dark ? '#64748b' : '#9ca3af';
   for (let f = 1; f <= numFrets; f++) {
     const y = top + f * fretSpacing;
     ctx.beginPath();
@@ -610,15 +611,37 @@ function drawChordDiagram(canvas, diagram) {
     ctx.stroke();
   }
 
-  // String lines
+  // String lines (with optional vibration for played strings)
+  const thicknesses = [2.2, 2, 1.8, 1.4, 1.2, 1];
   for (let s = 0; s < numStrings; s++) {
     const x = left + s * stringSpacing;
-    ctx.strokeStyle = s < 3 ? '#94a3b8' : '#cbd5e1';
-    ctx.lineWidth = s < 3 ? 2 : 1.2;
-    ctx.beginPath();
-    ctx.moveTo(x, top);
-    ctx.lineTo(x, bottom);
-    ctx.stroke();
+    const played = frets[s] !== -1;
+    const isVibrating = played && vibration && vibration.amplitude > 0.05;
+    ctx.strokeStyle = played
+      ? (isVibrating ? '#a78bfa' : (s < 3 ? (dark ? '#94a3b8' : '#6b7280') : (dark ? '#cbd5e1' : '#9ca3af')))
+      : (dark ? '#334155' : '#d1d5db');
+    ctx.lineWidth = thicknesses[s];
+
+    if (isVibrating) {
+      const amp = vibration.amplitude;
+      const waveFreq = 2 + (5 - s) * 0.35;
+      const phaseOff = s * 0.8;
+      ctx.beginPath();
+      for (let py = top; py <= bottom; py++) {
+        const t = (py - top) / (bottom - top);
+        const envelope = Math.sin(t * Math.PI);
+        const wave = Math.sin(t * waveFreq * Math.PI * 2 + vibration.phase + phaseOff);
+        const dx = amp * envelope * wave;
+        if (py === top) ctx.moveTo(x + dx, py);
+        else ctx.lineTo(x + dx, py);
+      }
+      ctx.stroke();
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(x, top);
+      ctx.lineTo(x, bottom);
+      ctx.stroke();
+    }
   }
 
   // Markers: X, O, or finger dots
@@ -637,7 +660,7 @@ function drawChordDiagram(canvas, diagram) {
     } else if (fret === 0) {
       ctx.beginPath();
       ctx.arc(x, top - 14, 5, 0, Math.PI * 2);
-      ctx.strokeStyle = '#e2e8f0';
+      ctx.strokeStyle = dark ? '#e2e8f0' : '#374151';
       ctx.lineWidth = 1.5;
       ctx.stroke();
     } else {
@@ -657,10 +680,41 @@ function drawChordDiagram(canvas, diagram) {
   // String labels at bottom
   const labels = ['E', 'A', 'D', 'G', 'B', 'e'];
   ctx.font = '500 10px Inter, sans-serif';
-  ctx.fillStyle = '#94a3b8';
+  ctx.fillStyle = dark ? '#94a3b8' : '#6b7280';
   for (let s = 0; s < numStrings; s++) {
     ctx.fillText(labels[s], left + s * stringSpacing, bottom + 12);
   }
+}
+
+function createChordVibrator(canvas, diagram) {
+  let animId = null;
+  let targetAmp = 0;
+  let currentAmp = 0;
+  let phase = 0;
+  let running = false;
+
+  function loop() {
+    currentAmp += (targetAmp - currentAmp) * 0.18;
+    phase += 0.3;
+    drawChordDiagram(canvas, diagram, { amplitude: currentAmp, phase });
+    if (currentAmp > 0.05 || targetAmp > 0) {
+      animId = requestAnimationFrame(loop);
+    } else {
+      currentAmp = 0;
+      drawChordDiagram(canvas, diagram);
+      animId = null;
+      running = false;
+    }
+  }
+
+  return {
+    update(rms) {
+      targetAmp = Math.min(rms * 100, 3.5);
+      if (!running) { running = true; animId = requestAnimationFrame(loop); }
+    },
+    stop() { targetAmp = 0; },
+    destroy() { if (animId) cancelAnimationFrame(animId); animId = null; running = false; },
+  };
 }
 
 function drawStringDiagram(canvas, stringIndex, vibration) {
@@ -804,19 +858,20 @@ function renderWizardStep(autoRecord = false) {
   const wizLevelLabel = wizLevel.querySelector('.level-meter-label');
   let stepAnalysis = null;
 
-  // Draw the fingering diagram
+  // Draw the fingering diagram and create vibrator for recording feedback
   const diagCanvas = $('#wiz-diagram');
-  let stringVibrator = null;
+  let diagVibrator = null;
   if (step.type === 'chord' && CHORD_DIAGRAMS[step.id]) {
     drawChordDiagram(diagCanvas, CHORD_DIAGRAMS[step.id]);
+    diagVibrator = createChordVibrator(diagCanvas, CHORD_DIAGRAMS[step.id]);
   } else if (step.type === 'string' && STRING_DIAGRAMS[step.id]) {
     const sIdx = STRING_DIAGRAMS[step.id].stringIndex;
     drawStringDiagram(diagCanvas, sIdx);
-    stringVibrator = createStringVibrator(diagCanvas, sIdx);
+    diagVibrator = createStringVibrator(diagCanvas, sIdx);
   }
 
   async function wizProcessRecording() {
-    if (stringVibrator) stringVibrator.stop();
+    if (diagVibrator) diagVibrator.stop();
     wizRecord.textContent = 'Record';
     wizRecord.classList.remove('recording');
     wizLevel.classList.add('hidden');
@@ -869,9 +924,9 @@ function renderWizardStep(autoRecord = false) {
             const threshPct = Math.min(threshold / meterMax, 1) * 100;
             wizLevel.style.setProperty('--threshold-pct', `${threshPct}%`);
             wizLevelLabel.textContent = st === 'listening' ? 'Waiting for sound…' : 'Recording…';
-            if (stringVibrator) {
-              if (st === 'recording') stringVibrator.update(rms);
-              else stringVibrator.stop();
+            if (diagVibrator) {
+              if (st === 'recording') diagVibrator.update(rms);
+              else diagVibrator.stop();
             }
           },
           async onAutoStop() {
@@ -903,7 +958,7 @@ function renderWizardStep(autoRecord = false) {
 
   wizNext.addEventListener('click', () => {
     if (!stepAnalysis) return;
-    if (stringVibrator) { stringVibrator.destroy(); stringVibrator = null; }
+    if (diagVibrator) { diagVibrator.destroy(); diagVibrator = null; }
     profileStepResults[profileCurrentStep] = {
       stepId: step.id,
       analysis: stepAnalysis,
