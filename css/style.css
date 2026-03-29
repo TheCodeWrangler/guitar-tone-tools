@@ -27,35 +27,35 @@
 /* ── Light Theme ──────────────────────────────────────────────────── */
 
 [data-theme="light"] {
-  --bg:          #f0f2f8;
-  --surface:     rgba(255,255,255,0.7);
-  --surface-2:   rgba(255,255,255,0.85);
-  --surface-solid: #ffffff;
-  --border:      rgba(0,0,0,0.08);
-  --border-light: rgba(0,0,0,0.12);
-  --text:        #1a1d2e;
-  --text-dim:    #6b7280;
-  --primary:     #4f46e5;
-  --primary-h:   #6366f1;
-  --primary-glow: rgba(79,70,229,0.2);
-  --danger:      #e11d48;
-  --accent:      #7c3aed;
-  --green:       #059669;
-  --green-glow:  rgba(5,150,105,0.15);
-  --amber:       #d97706;
-  --glass:       saturate(1.2) blur(20px);
+  --bg:          #f5f5f3;
+  --surface:     rgba(255,255,255,0.55);
+  --surface-2:   rgba(255,255,255,0.7);
+  --surface-solid: #fafaf9;
+  --border:      rgba(0,0,0,0.06);
+  --border-light: rgba(0,0,0,0.10);
+  --text:        #2e3039;
+  --text-dim:    #787d8a;
+  --primary:     #5b54d4;
+  --primary-h:   #6e6be0;
+  --primary-glow: rgba(91,84,212,0.14);
+  --danger:      #d43456;
+  --accent:      #7047c4;
+  --green:       #0d9668;
+  --green-glow:  rgba(13,150,104,0.10);
+  --amber:       #c4820a;
+  --glass:       saturate(1.1) blur(22px);
 }
 
 [data-theme="light"] .bg-gradient {
   background:
-    radial-gradient(ellipse 80% 50% at 20% 20%, rgba(79,70,229,0.06), transparent),
-    radial-gradient(ellipse 60% 40% at 80% 80%, rgba(124,58,237,0.04), transparent),
-    radial-gradient(ellipse 50% 50% at 50% 0%, rgba(5,150,105,0.04), transparent),
+    radial-gradient(ellipse 80% 50% at 20% 20%, rgba(91,84,212,0.04), transparent),
+    radial-gradient(ellipse 60% 40% at 80% 80%, rgba(112,71,196,0.03), transparent),
+    radial-gradient(ellipse 50% 50% at 50% 0%, rgba(13,150,104,0.025), transparent),
     var(--bg);
 }
 
 [data-theme="light"] header h1 {
-  background: linear-gradient(135deg, var(--text) 0%, var(--primary) 50%, var(--accent) 100%);
+  background: linear-gradient(135deg, var(--text) 0%, var(--primary-h) 60%, var(--accent) 100%);
   -webkit-background-clip: text;
   background-clip: text;
 }
@@ -84,9 +84,40 @@
   background: rgba(0,0,0,0.03);
 }
 
+[data-theme="light"] .btn:not(.primary):not(.danger):hover {
+  background: rgba(0,0,0,0.04);
+  border-color: rgba(0,0,0,0.12);
+}
+
+[data-theme="light"] .nav-btn:hover {
+  background: rgba(0,0,0,0.04);
+}
+
+[data-theme="light"] .library-card:hover {
+  box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+}
+
+[data-theme="light"] .record-panel,
+[data-theme="light"] .wizard-panel,
+[data-theme="light"] .wizard-step {
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+}
+
 [data-theme="light"] select option {
-  background: #fff;
+  background: var(--surface-solid);
   color: var(--text);
+}
+
+[data-theme="light"] .score-gauge-bar {
+  background: rgba(0,0,0,0.05);
+}
+
+[data-theme="light"] .wizard-progress-bar {
+  background: rgba(0,0,0,0.05);
+}
+
+[data-theme="light"] .level-meter {
+  background: rgba(0,0,0,0.03);
 }
 
 /* ── Theme Toggle ────────────────────────────────────────────────── */

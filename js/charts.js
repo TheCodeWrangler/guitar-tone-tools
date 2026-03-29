@@ -8,10 +8,10 @@ const BIN_COLORS = { bass: '#3b82f6', mid: '#10b981', highmid: '#f59e0b', upperm
 function themeColors() {
   const dark = document.documentElement.getAttribute('data-theme') !== 'light';
   return {
-    axis:  dark ? '#475569' : '#cbd5e1',
-    grid:  dark ? '#334155' : '#e2e8f0',
-    label: dark ? '#94a3b8' : '#64748b',
-    text:  dark ? '#e2e8f0' : '#1a1d2e',
+    axis:  dark ? '#475569' : '#c4c6cc',
+    grid:  dark ? '#334155' : '#dddee2',
+    label: dark ? '#94a3b8' : '#787d8a',
+    text:  dark ? '#e2e8f0' : '#2e3039',
   };
 }
 
@@ -102,7 +102,7 @@ function setupCanvas(canvas, title) {
   ctx.clearRect(0, 0, rect.width, rect.height);
 
   const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
-  ctx.fillStyle = isDark ? '#e2e8f0' : '#1a1d2e';
+  ctx.fillStyle = isDark ? '#e2e8f0' : '#2e3039';
   ctx.font = 'bold 13px Inter, system-ui, sans-serif';
   ctx.fillText(title, 12, 20);
 
