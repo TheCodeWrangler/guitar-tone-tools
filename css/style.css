@@ -1081,6 +1081,7 @@ select option { background: var(--surface-solid); color: var(--text); }
 /* ── Level Meter ────────────────────────────────────────────────── */
 
 .level-meter {
+  --threshold-pct: 25%;
   position: relative;
   height: 32px;
   background: rgba(255,255,255,0.03);
@@ -1088,6 +1089,20 @@ select option { background: var(--surface-solid); color: var(--text); }
   border-radius: var(--radius-sm);
   overflow: hidden;
   margin: 0.5rem 0;
+}
+
+.level-meter::after {
+  content: '';
+  position: absolute;
+  left: var(--threshold-pct);
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--green);
+  opacity: 0.5;
+  z-index: 1;
+  pointer-events: none;
+  transition: left 0.3s ease;
 }
 
 .level-meter-fill {
@@ -1116,6 +1131,7 @@ select option { background: var(--surface-solid); color: var(--text); }
   font-weight: 600;
   pointer-events: none;
   text-shadow: 0 1px 4px rgba(0,0,0,0.5);
+  z-index: 2;
 }
 
 /* ── Export & Import ─────────────────────────────────────────────── */

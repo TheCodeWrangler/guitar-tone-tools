@@ -2,7 +2,7 @@
  * Main application controller — wires the UI to the recorder, analysis, and scoring engines.
  * All guitar data is persisted in localStorage so comparisons survive reloads.
  */
-import { openMic, closeMic, finishRecording, manualStop, getState, loadAudioFile } from './recorder.js';
+import { openMic, closeMic, finishRecording, manualStop, getState, getOnsetThreshold, loadAudioFile } from './recorder.js';
 import { analyzeAudio } from './analysis.js';
 import {
   computeScores, hzToNote, CHORD_PRESETS, SCORE_LABELS, SCORE_DESCRIPTIONS, scoreGrade,
@@ -358,8 +358,7 @@ async function processRecording() {
 
 btnRecord.addEventListener('click', async () => {
   const recState = getState();
-  if (recState === 'listening' || recState === 'recording') {
-    // Manual stop
+  if (recState === 'listening' || recState === 'recording' || recState === 'calibrating') {
     manualStop();
     await processRecording();
   } else {
@@ -371,10 +370,14 @@ btnRecord.addEventListener('click', async () => {
       levelMeter.classList.remove('hidden');
 
       await openMic({
-        onLevel(rms, st) {
-          const pct = Math.min(rms / 0.15, 1) * 100;
+        onLevel(rms, st, meta) {
+          const threshold = meta?.threshold ?? 0.04;
+          const meterMax = Math.max(threshold * 4, 0.03);
+          const pct = Math.min(rms / meterMax, 1) * 100;
           levelFill.style.width = `${pct}%`;
           levelFill.className = 'level-meter-fill' + (st === 'recording' ? ' active' : '');
+          const threshPct = Math.min(threshold / meterMax, 1) * 100;
+          levelMeter.style.setProperty('--threshold-pct', `${threshPct}%`);
           levelLabel.textContent = st === 'listening' ? 'Waiting for sound…' : 'Recording…';
         },
         async onAutoStop() {
@@ -797,7 +800,7 @@ function renderWizardStep(autoRecord = false) {
 
   async function doRecord() {
     const recState = getState();
-    if (recState === 'listening' || recState === 'recording') {
+    if (recState === 'listening' || recState === 'recording' || recState === 'calibrating') {
       manualStop();
       await wizProcessRecording();
     } else {
@@ -809,10 +812,14 @@ function renderWizardStep(autoRecord = false) {
         wizLevel.classList.remove('hidden');
 
         await openMic({
-          onLevel(rms, st) {
-            const pct = Math.min(rms / 0.15, 1) * 100;
+          onLevel(rms, st, meta) {
+            const threshold = meta?.threshold ?? 0.04;
+            const meterMax = Math.max(threshold * 4, 0.03);
+            const pct = Math.min(rms / meterMax, 1) * 100;
             wizLevelFill.style.width = `${pct}%`;
             wizLevelFill.className = 'level-meter-fill' + (st === 'recording' ? ' active' : '');
+            const threshPct = Math.min(threshold / meterMax, 1) * 100;
+            wizLevel.style.setProperty('--threshold-pct', `${threshPct}%`);
             wizLevelLabel.textContent = st === 'listening' ? 'Waiting for sound…' : 'Recording…';
           },
           async onAutoStop() {
@@ -1214,17 +1221,21 @@ function openRerecordPanel(panel, stepIdx, stepId, profile, name, reportContaine
 
   btnRec.addEventListener('click', async () => {
     const recState = getState();
-    if (recState === 'listening' || recState === 'recording') {
+    if (recState === 'listening' || recState === 'recording' || recState === 'calibrating') {
       manualStop();
       await processRerecording();
     } else {
       try {
         rrLevel.classList.remove('hidden');
         await openMic({
-          onLevel(rms, st) {
-            const pct = Math.min(rms / 0.15, 1) * 100;
+          onLevel(rms, st, meta) {
+            const threshold = meta?.threshold ?? 0.04;
+            const meterMax = Math.max(threshold * 4, 0.03);
+            const pct = Math.min(rms / meterMax, 1) * 100;
             rrFill.style.width = `${pct}%`;
             rrFill.className = 'level-meter-fill' + (st === 'recording' ? ' active' : '');
+            const threshPct = Math.min(threshold / meterMax, 1) * 100;
+            rrLevel.style.setProperty('--threshold-pct', `${threshPct}%`);
             rrLabel.textContent = st === 'listening' ? 'Waiting for sound…' : 'Recording…';
           },
           async onAutoStop() {

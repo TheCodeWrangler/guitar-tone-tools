@@ -3,11 +3,14 @@
  *
  * Flow:
  *  1. openMic()       → requests mic, starts AnalyserNode for level monitoring
- *  2. Level callback fires continuously with current RMS (0–1)
- *  3. When RMS exceeds onset threshold → MediaRecorder starts capturing
- *  4. When RMS stays below silence threshold for silenceDuration → auto-stops
- *  5. finishRecording() decodes the captured audio and returns { audioBuffer, blob }
- *  6. closeMic()      → tears everything down
+ *  2. Calibration phase (~0.5 s) measures ambient noise floor
+ *  3. Adaptive onset threshold is set relative to the noise floor so that
+ *     quieter microphones (e.g. mobile phones) can still trigger recording
+ *  4. Level callback fires continuously with current RMS (0–1)
+ *  5. When RMS exceeds onset threshold → MediaRecorder starts capturing
+ *  6. When RMS stays below silence threshold for silenceDuration → auto-stops
+ *  7. finishRecording() decodes the captured audio and returns { audioBuffer, blob }
+ *  8. closeMic()      → tears everything down
  */
 
 let stream = null;
@@ -18,21 +21,32 @@ let mediaRecorder = null;
 let audioChunks = [];
 let monitorRaf = null;
 
-let state = 'idle'; // idle | listening | recording | done
+let state = 'idle'; // idle | listening | calibrating | recording | done
 
-// Configurable thresholds
-const ONSET_THRESHOLD   = 0.04;  // RMS level to start capture
-const SILENCE_THRESHOLD = 0.008; // RMS level considered silence
+// Adaptive thresholds — computed after calibration
+let onsetThreshold   = 0.008; // RMS level to start capture (lowered from 0.04)
+let silenceThreshold = 0.003; // RMS level considered silence
+
+// Calibration state
+const CALIBRATION_FRAMES = 30;  // ~0.5 s at 60 fps
+let calibrationSamples = [];
+
+// Fixed parameters
 const SILENCE_DURATION  = 1.5;   // seconds of silence before auto-stop
 const MIN_DURATION      = 0.5;   // minimum capture length (seconds)
 const MAX_DURATION      = 10;    // safety cap (seconds)
 
+// Absolute floor — prevents triggering on electrical noise alone
+const MIN_ONSET   = 0.006;
+const MIN_SILENCE = 0.002;
+
 let silenceStart = 0;
 let recordStart  = 0;
-let onLevel = null;     // callback: (rms: number, state: string) => void
+let onLevel = null;     // callback: (rms, state, { threshold }) => void
 let onAutoStop = null;  // callback: () => void — called when auto-stop triggers
 
 export function getState() { return state; }
+export function getOnsetThreshold() { return onsetThreshold; }
 
 /**
  * Open the microphone and begin monitoring levels.
@@ -49,31 +63,56 @@ export async function openMic(opts = {}) {
       echoCancellation: false,
       noiseSuppression: false,
       autoGainControl: false,
-      sampleRate: 44100,
     },
   });
 
   audioCtx = new AudioContext({ sampleRate: 44100 });
+
+  // Mobile browsers start AudioContext in 'suspended' state due to autoplay
+  // policy — must explicitly resume even after a user gesture.
+  if (audioCtx.state === 'suspended') {
+    await audioCtx.resume();
+  }
+
   sourceNode = audioCtx.createMediaStreamSource(stream);
   analyser = audioCtx.createAnalyser();
   analyser.fftSize = 2048;
   sourceNode.connect(analyser);
 
-  // Prepare MediaRecorder (not started yet)
   mediaRecorder = new MediaRecorder(stream, { mimeType: getSupportedMime() });
   audioChunks = [];
   mediaRecorder.ondataavailable = (e) => {
     if (e.data.size > 0) audioChunks.push(e.data);
   };
 
-  state = 'listening';
+  state = 'calibrating';
+  calibrationSamples = [];
   silenceStart = 0;
   recordStart = 0;
   monitorLoop();
 }
 
+function finishCalibration() {
+  if (calibrationSamples.length === 0) {
+    onsetThreshold = MIN_ONSET;
+    silenceThreshold = MIN_SILENCE;
+  } else {
+    const sorted = calibrationSamples.slice().sort((a, b) => a - b);
+    // Use the 90th percentile of ambient noise as the noise floor
+    const p90 = sorted[Math.floor(sorted.length * 0.9)] || 0;
+    // Onset = 4× the noise floor (ensures a clear signal-to-noise gap)
+    onsetThreshold   = Math.max(MIN_ONSET, p90 * 4);
+    silenceThreshold = Math.max(MIN_SILENCE, p90 * 1.5);
+  }
+  state = 'listening';
+}
+
 function monitorLoop() {
   if (state === 'idle' || state === 'done') return;
+
+  if (audioCtx && audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
 
   const buf = new Float32Array(analyser.fftSize);
   analyser.getFloatTimeDomainData(buf);
@@ -82,11 +121,20 @@ function monitorLoop() {
   for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
   const rms = Math.sqrt(sum / buf.length);
 
-  if (onLevel) onLevel(rms, state);
+  if (state === 'calibrating') {
+    calibrationSamples.push(rms);
+    if (onLevel) onLevel(rms, 'listening', { threshold: onsetThreshold });
+    if (calibrationSamples.length >= CALIBRATION_FRAMES) {
+      finishCalibration();
+    }
+    monitorRaf = requestAnimationFrame(monitorLoop);
+    return;
+  }
+
+  if (onLevel) onLevel(rms, state, { threshold: onsetThreshold });
 
   if (state === 'listening') {
-    if (rms >= ONSET_THRESHOLD) {
-      // Sound detected — start capturing
+    if (rms >= onsetThreshold) {
       state = 'recording';
       recordStart = performance.now();
       silenceStart = 0;
@@ -100,7 +148,7 @@ function monitorLoop() {
       return;
     }
 
-    if (rms < SILENCE_THRESHOLD) {
+    if (rms < silenceThreshold) {
       if (silenceStart === 0) {
         silenceStart = performance.now();
       } else {
@@ -145,6 +193,7 @@ export function finishRecording() {
         const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
         const arrayBuf = await blob.arrayBuffer();
         const decodeCtx = new AudioContext({ sampleRate: 44100 });
+        if (decodeCtx.state === 'suspended') await decodeCtx.resume();
         const audioBuffer = await decodeCtx.decodeAudioData(arrayBuf);
         resolve({ audioBuffer, blob });
       } catch (e) {
@@ -171,6 +220,7 @@ export function closeMic() {
   sourceNode = null;
   mediaRecorder = null;
   audioChunks = [];
+  calibrationSamples = [];
   onLevel = null;
   onAutoStop = null;
 }
@@ -181,6 +231,7 @@ export function closeMic() {
 export async function loadAudioFile(file) {
   const arrayBuf = await file.arrayBuffer();
   const ctx = new AudioContext({ sampleRate: 44100 });
+  if (ctx.state === 'suspended') await ctx.resume();
   const audioBuffer = await ctx.decodeAudioData(arrayBuf);
   return { audioBuffer, blob: file };
 }
