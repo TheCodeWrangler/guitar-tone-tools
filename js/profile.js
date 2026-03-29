@@ -33,8 +33,8 @@ export const STRING_DIAGRAMS = {
  */
 export const CHORD_NOTES = {
   G:  [
-    { hz: 196.00, name: 'G3' }, { hz: 246.94, name: 'B3' }, { hz: 293.66, name: 'D4' },
-    { hz: 392.00, name: 'G4' }, { hz: 493.88, name: 'B4' }, { hz: 587.33, name: 'D5' },
+    { hz: 98.00, name: 'G2' }, { hz: 123.47, name: 'B2' }, { hz: 146.83, name: 'D3' },
+    { hz: 196.00, name: 'G3' }, { hz: 246.94, name: 'B3' }, { hz: 392.00, name: 'G4' },
   ],
   C:  [
     { hz: 130.81, name: 'C3' }, { hz: 164.81, name: 'E3' }, { hz: 196.00, name: 'G3' },
