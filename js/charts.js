@@ -13,7 +13,7 @@ function safeMax(arr) {
   return max;
 }
 
-const DB_FLOOR = -32;
+const DB_ABS_FLOOR = -80;
 const LOG_MIN_FREQ = 50;
 const LOG_MAX_FREQ = 5000;
 const LOG_MIN = Math.log10(LOG_MIN_FREQ);
@@ -22,9 +22,23 @@ const LOG_RANGE = LOG_MAX - LOG_MIN;
 const FREQ_TICKS = [50, 100, 200, 500, 1000, 2000, 5000];
 
 function magToDb(mag) {
-  if (mag <= 0) return DB_FLOOR;
+  if (mag <= 0) return DB_ABS_FLOOR;
   const db = 20 * Math.log10(mag);
-  return db < DB_FLOOR ? DB_FLOOR : db;
+  return db < DB_ABS_FLOOR ? DB_ABS_FLOOR : db;
+}
+
+function computeDbFloor(frequencies, magnitudes, peakDb) {
+  let minDb = 0;
+  for (let i = 0; i < frequencies.length; i++) {
+    if (frequencies[i] < LOG_MIN_FREQ) continue;
+    if (frequencies[i] > LOG_MAX_FREQ) break;
+    if (magnitudes[i] > 0) {
+      const db = 20 * Math.log10(magnitudes[i]) - peakDb;
+      if (db < minDb) minDb = db;
+    }
+  }
+  const floor = Math.floor(minDb / 5) * 5 - 2;
+  return Math.max(floor, -80);
 }
 
 function freqToX(freq, ox, plotW) {
@@ -147,7 +161,6 @@ export function drawFFT(canvas, frequencies, magnitudes, title = 'Frequency Spec
   const plotH = h - top - bot;
   const plotW = w - 56;
   const ox = 48;
-  const rangeDb = -DB_FLOOR;
 
   // Peak-normalize so tallest spike sits at 0 dB
   let peakMag = 0;
@@ -156,9 +169,13 @@ export function drawFFT(canvas, frequencies, magnitudes, title = 'Frequency Spec
       peakMag = magnitudes[i];
   }
   const peakDb = peakMag > 0 ? 20 * Math.log10(peakMag) : 0;
+  const dbFloor = computeDbFloor(frequencies, magnitudes, peakDb);
+  const rangeDb = -dbFloor;
+
   function yFromMag(mag) {
     const db = magToDb(mag) - peakDb;
-    return top + plotH - ((db - DB_FLOOR) / rangeDb) * plotH;
+    const clamped = Math.max(db, dbFloor);
+    return top + plotH - ((clamped - dbFloor) / rangeDb) * plotH;
   }
 
   drawRefLines(ctx, referenceFreqs, ox, plotW, top, plotH);
@@ -173,8 +190,8 @@ export function drawFFT(canvas, frequencies, magnitudes, title = 'Frequency Spec
   ctx.stroke();
 
   // dB grid
-  for (let db = 0; db >= DB_FLOOR; db -= 10) {
-    const y = top + plotH - ((db - DB_FLOOR) / rangeDb) * plotH;
+  for (let db = 0; db >= dbFloor; db -= 10) {
+    const y = top + plotH - ((db - dbFloor) / rangeDb) * plotH;
     ctx.strokeStyle = '#334155';
     ctx.lineWidth = 0.5;
     ctx.beginPath();
@@ -296,11 +313,20 @@ export function drawFFTOverlay(canvas, analyses, referenceFreqs = null) {
   const plotH = h - top - bot;
   const plotW = w - 56;
   const ox = 48;
-  const rangeDb = -DB_FLOOR;
+
+  // Dynamic floor across all analyses
+  let globalMinDb = 0;
+  for (const a of analyses) {
+    const floor = computeDbFloor(a.fft.frequencies, a.fft.magnitudes, 0);
+    if (floor < globalMinDb) globalMinDb = floor;
+  }
+  const dbFloor = globalMinDb;
+  const rangeDb = -dbFloor;
 
   function yFromMag(mag) {
     const db = magToDb(mag);
-    return top + plotH - ((db - DB_FLOOR) / rangeDb) * plotH;
+    const clamped = Math.max(db, dbFloor);
+    return top + plotH - ((clamped - dbFloor) / rangeDb) * plotH;
   }
 
   drawRefLines(ctx, referenceFreqs, ox, plotW, top, plotH);
@@ -315,8 +341,8 @@ export function drawFFTOverlay(canvas, analyses, referenceFreqs = null) {
   ctx.stroke();
 
   // dB grid
-  for (let db = 0; db >= DB_FLOOR; db -= 10) {
-    const y = top + plotH - ((db - DB_FLOOR) / rangeDb) * plotH;
+  for (let db = 0; db >= dbFloor; db -= 10) {
+    const y = top + plotH - ((db - dbFloor) / rangeDb) * plotH;
     ctx.strokeStyle = '#334155';
     ctx.lineWidth = 0.5;
     ctx.beginPath();
@@ -427,7 +453,11 @@ export function drawMirrorFFT(canvas, a1, a2) {
   const plotW = w - 56;
   const ox = 48;
   const midY = top + halfH;
-  const rangeDb = -DB_FLOOR;
+
+  const floor1 = computeDbFloor(a1.fft.frequencies, a1.fft.magnitudes, 0);
+  const floor2 = computeDbFloor(a2.fft.frequencies, a2.fft.magnitudes, 0);
+  const dbFloor = Math.min(floor1, floor2);
+  const rangeDb = -dbFloor;
 
   ctx.strokeStyle = '#475569';
   ctx.lineWidth = 1;
@@ -449,8 +479,8 @@ export function drawMirrorFFT(canvas, a1, a2) {
   // dB ticks (each half)
   ctx.fillStyle = '#94a3b8';
   ctx.font = '9px Inter, system-ui, sans-serif';
-  for (let db = 0; db >= DB_FLOOR; db -= 20) {
-    const offset = ((db - DB_FLOOR) / rangeDb) * halfH;
+  for (let db = 0; db >= dbFloor; db -= 20) {
+    const offset = ((db - dbFloor) / rangeDb) * halfH;
     ctx.strokeStyle = '#334155';
     ctx.lineWidth = 0.4;
     ctx.beginPath();
@@ -477,8 +507,8 @@ export function drawMirrorFFT(canvas, a1, a2) {
       if (f < LOG_MIN_FREQ) continue;
       if (f > LOG_MAX_FREQ) break;
       const x = freqToX(f, ox, plotW);
-      const db = magToDb(magnitudes[i]);
-      const norm = (db - DB_FLOOR) / rangeDb;
+      const db = Math.max(magToDb(magnitudes[i]), dbFloor);
+      const norm = (db - dbFloor) / rangeDb;
       const y = midY - yDir * norm * halfH;
       if (!started) { ctx.moveTo(x, y); started = true; }
       else ctx.lineTo(x, y);
