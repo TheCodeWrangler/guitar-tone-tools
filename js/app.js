@@ -164,6 +164,8 @@ function serialiseHarmonicDecay(hd, maxPoints) {
       harmonic: h.harmonic,
       hz: h.hz,
       decayRate: h.decayRate,
+      snr: h.snr,
+      driftCents: h.driftCents,
       amplitudes: times.map((_, ti) => h.amplitudes[ti * step] ?? 0),
     })),
   };

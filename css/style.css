@@ -1365,6 +1365,15 @@ select option { background: var(--surface-solid); color: var(--text); }
   border-color: var(--border-light);
 }
 
+.harmonic-toggle.low-confidence {
+  opacity: 0.35;
+  border-style: dashed;
+}
+
+.harmonic-toggle.low-confidence.active {
+  opacity: 0.55;
+}
+
 .harmonic-toggle .ht-swatch {
   display: inline-block;
   width: 8px;

@@ -400,7 +400,7 @@ function trackHarmonicDecay(stft, fundamental) {
   if (!fundamental || fundamental < 20) return null;
 
   const { times, frequencies, matrix } = stft;
-  const maxHarmonics = 8;
+  const maxHarmonics = 12;
   const nBins = frequencies.length;
   const freqStep = nBins > 1 ? frequencies[1] : 1;
 
@@ -460,10 +460,27 @@ function trackHarmonicDecay(stft, fundamental) {
         }
       }
 
+      // SNR: compare peak bin magnitude to surrounding noise floor
+      const peakMag = avgSpectrum[binIdx] || 0;
+      const noiseRad = 10;
+      const noiseVals = [];
+      for (let k = Math.max(0, binIdx - noiseRad); k <= Math.min(nBins - 1, binIdx + noiseRad); k++) {
+        if (Math.abs(k - binIdx) > halfW) noiseVals.push(avgSpectrum[k]);
+      }
+      noiseVals.sort((a, b) => a - b);
+      const noiseFloor = noiseVals.length > 0 ? noiseVals[Math.floor(noiseVals.length / 2)] : 0;
+      const snr = (peakMag > 0 && noiseFloor > 0)
+        ? Math.round(20 * Math.log10(peakMag / noiseFloor) * 10) / 10
+        : (peakMag > 0 ? 40 : 0);
+
+      const driftCents = Math.round(1200 * Math.log2(actualHz / nominalHz));
+
       result.push({
         harmonic: h,
         hz: Math.round(actualHz * 10) / 10,
         decayRate,
+        snr,
+        driftCents,
         amplitudes: Array.from(amplitudes),
       });
     }

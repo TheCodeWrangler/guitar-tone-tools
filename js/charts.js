@@ -818,12 +818,16 @@ export function drawSpectrogram(canvas, stftData, title = 'Spectrogram', referen
     }
   }
 
-  // Tracked harmonic overlay (shows where bin-snapping actually locked on)
+  // Tracked harmonic overlay — color-coded by SNR confidence
   if (opts.trackedHarmonics) {
     for (const th of opts.trackedHarmonics) {
       if (th.hz < minF || th.hz > maxF) continue;
       const y = freqToY(th.hz);
-      ctx.strokeStyle = 'rgba(0,255,180,0.5)';
+      const confident = th.snr == null || th.snr >= 10;
+      const weak = th.snr != null && th.snr < 6;
+      const lineColor = weak ? 'rgba(255,120,60,0.45)' : confident ? 'rgba(0,255,180,0.5)' : 'rgba(255,220,80,0.45)';
+      const textColor = weak ? 'rgba(255,120,60,0.7)' : confident ? 'rgba(0,255,180,0.75)' : 'rgba(255,220,80,0.7)';
+      ctx.strokeStyle = lineColor;
       ctx.lineWidth = 0.9;
       ctx.setLineDash([2, 3]);
       ctx.beginPath();
@@ -831,10 +835,13 @@ export function drawSpectrogram(canvas, stftData, title = 'Spectrogram', referen
       ctx.lineTo(left + plotW, y);
       ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillStyle = 'rgba(0,255,180,0.75)';
+      ctx.fillStyle = textColor;
       ctx.font = 'bold 7px Inter, system-ui, sans-serif';
-      const label = th.harmonic === 1 ? `▸ ${th.hz}Hz` : `▸ ${th.harmonic}× ${th.hz}Hz`;
-      ctx.fillText(label, left + 4, y - 3);
+      const prefix = weak ? '? ' : '▸ ';
+      const hLabel = th.harmonic === 1 ? '' : `${th.harmonic}× `;
+      const drift = th.driftCents != null && th.driftCents !== 0 ? ` ${th.driftCents > 0 ? '+' : ''}${th.driftCents}¢` : '';
+      const snrStr = th.snr != null ? ` ${Math.round(th.snr)}dB` : '';
+      ctx.fillText(`${prefix}${hLabel}${th.hz}Hz${drift}${snrStr}`, left + 4, y - 3);
     }
   }
 
@@ -915,7 +922,9 @@ export function mountSpectrogram(container, stftData, title, referenceFreqs, har
   controls.appendChild(linBtn);
 
   const trackedHarmonics = harmonicDecay && harmonicDecay.harmonics
-    ? harmonicDecay.harmonics.map(h => ({ harmonic: h.harmonic, hz: h.hz }))
+    ? harmonicDecay.harmonics.map(h => ({
+        harmonic: h.harmonic, hz: h.hz, snr: h.snr, driftCents: h.driftCents,
+      }))
     : null;
 
   if (trackedHarmonics) {
@@ -957,8 +966,14 @@ export function mountSpectrogram(container, stftData, title, referenceFreqs, har
 
 // ── Harmonic Decay Chart ──────────────────────────────────────────────
 
-const HARMONIC_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
-const DASH_PATTERNS = [[], [6, 4], [3, 3], [8, 3, 2, 3], [2, 2], [10, 4], [4, 2, 1, 2], [1, 3]];
+const HARMONIC_COLORS = [
+  '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899',
+  '#06b6d4', '#84cc16', '#f97316', '#14b8a6', '#a855f7', '#e11d48',
+];
+const DASH_PATTERNS = [
+  [], [6, 4], [3, 3], [8, 3, 2, 3], [2, 2], [10, 4],
+  [4, 2, 1, 2], [1, 3], [8, 2], [3, 5], [6, 2, 2, 2], [1, 4],
+];
 
 export function drawHarmonicDecay(canvas, harmonicDecay, title = 'Harmonic Decay Over Time', visibleSet = null) {
   if (!harmonicDecay || !harmonicDecay.harmonics || !harmonicDecay.harmonics.length) return;
@@ -1320,9 +1335,14 @@ export function mountHarmonicDecayChart(container, harmonicDecay, title = 'Harmo
 
   harmonicDecay.harmonics.forEach((harm, i) => {
     const color = HARMONIC_COLORS[i % HARMONIC_COLORS.length];
-    const label = harm.harmonic === 1 ? 'Fund.' : `${harm.harmonic}×`;
+    const hLabel = harm.harmonic === 1 ? 'Fund.' : `${harm.harmonic}×`;
     const hzStr = harm.hz ? ` ${Math.round(harm.hz)}Hz` : '';
-    const btn = buildHarmonicToggle(label + hzStr, color, visible.has(i), 'swatch');
+    const drift = harm.driftCents != null && harm.driftCents !== 0
+      ? ` ${harm.driftCents > 0 ? '+' : ''}${harm.driftCents}¢` : '';
+    const snrStr = harm.snr != null ? ` ${Math.round(harm.snr)}dB` : '';
+    const lowSnr = harm.snr != null && harm.snr < 6;
+    const btn = buildHarmonicToggle(hLabel + hzStr + drift + snrStr, color, visible.has(i), 'swatch');
+    if (lowSnr) btn.classList.add('low-confidence');
     btn.addEventListener('click', () => {
       if (visible.has(i)) { if (visible.size > 1) visible.delete(i); }
       else visible.add(i);
