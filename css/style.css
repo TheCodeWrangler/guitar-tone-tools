@@ -1380,6 +1380,20 @@ select option { background: var(--surface-solid); color: var(--text); }
   vertical-align: middle;
 }
 
+/* ── Spectrogram widget ───────────────────────────── */
+
+.spectrogram-widget {
+  display: flex;
+  flex-direction: column;
+}
+
+.spectrogram-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  padding: 0.35rem 0.25rem 0;
+}
+
 /* ── Responsive ──────────────────────────────────────────────────── */
 
 @media (max-width: 600px) {

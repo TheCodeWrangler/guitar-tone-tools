@@ -749,13 +749,14 @@ function spectrogramRGB(t) {
   return [255, 255, 220];
 }
 
-export function drawSpectrogram(canvas, stftData, title = 'Spectrogram', referenceFreqs = null) {
+export function drawSpectrogram(canvas, stftData, title = 'Spectrogram', referenceFreqs = null, opts = {}) {
   if (!stftData || !stftData.data || !stftData.data.length) return;
   const { ctx, w, h } = setupCanvas(canvas, title);
   const tc = themeColors();
   const top = 36, bot = 30, left = 48, right = 54;
   const plotW = w - left - right;
   const plotH = h - top - bot;
+  const useLog = opts.logScale !== false;
 
   const { times, frequencies, numBins, data } = stftData;
   const numFrames = times.length;
@@ -765,6 +766,14 @@ export function drawSpectrogram(canvas, stftData, title = 'Spectrogram', referen
   const logMinF = Math.log10(minF);
   const logMaxF = Math.log10(maxF);
   const logRangeF = logMaxF - logMinF;
+
+  function freqToY(freq) {
+    if (useLog) {
+      const logF = Math.log10(Math.max(freq, minF));
+      return top + plotH * (1 - (logF - logMinF) / logRangeF);
+    }
+    return top + plotH * (1 - (freq - minF) / (maxF - minF));
+  }
 
   let peak = 0;
   for (let i = 0; i < data.length; i++) { if (data[i] > peak) peak = data[i]; }
@@ -778,10 +787,8 @@ export function drawSpectrogram(canvas, stftData, title = 'Spectrogram', referen
       const nextFreq = frequencies[f + 1];
       if (freq < minF || freq > maxF) continue;
 
-      const logF = Math.log10(freq);
-      const logFN = Math.log10(Math.min(nextFreq, maxF));
-      const y1 = top + plotH * (1 - (logF - logMinF) / logRangeF);
-      const y2 = top + plotH * (1 - (logFN - logMinF) / logRangeF);
+      const y1 = freqToY(freq);
+      const y2 = freqToY(Math.min(nextFreq, maxF));
 
       const mag = data[t * numBins + f];
       const db = mag > 0 ? 20 * Math.log10(mag / peak) : -80;
@@ -796,8 +803,7 @@ export function drawSpectrogram(canvas, stftData, title = 'Spectrogram', referen
   if (referenceFreqs) {
     for (const ref of referenceFreqs) {
       if (ref.hz < minF || ref.hz > maxF) continue;
-      const logF = Math.log10(ref.hz);
-      const y = top + plotH * (1 - (logF - logMinF) / logRangeF);
+      const y = freqToY(ref.hz);
       ctx.strokeStyle = 'rgba(255,255,255,0.55)';
       ctx.lineWidth = 0.7;
       ctx.setLineDash([4, 3]);
@@ -812,6 +818,26 @@ export function drawSpectrogram(canvas, stftData, title = 'Spectrogram', referen
     }
   }
 
+  // Tracked harmonic overlay (shows where bin-snapping actually locked on)
+  if (opts.trackedHarmonics) {
+    for (const th of opts.trackedHarmonics) {
+      if (th.hz < minF || th.hz > maxF) continue;
+      const y = freqToY(th.hz);
+      ctx.strokeStyle = 'rgba(0,255,180,0.5)';
+      ctx.lineWidth = 0.9;
+      ctx.setLineDash([2, 3]);
+      ctx.beginPath();
+      ctx.moveTo(left, y);
+      ctx.lineTo(left + plotW, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = 'rgba(0,255,180,0.75)';
+      ctx.font = 'bold 7px Inter, system-ui, sans-serif';
+      const label = th.harmonic === 1 ? `▸ ${th.hz}Hz` : `▸ ${th.harmonic}× ${th.hz}Hz`;
+      ctx.fillText(label, left + 4, y - 3);
+    }
+  }
+
   // Axes
   ctx.strokeStyle = tc.axis;
   ctx.lineWidth = 1;
@@ -821,13 +847,15 @@ export function drawSpectrogram(canvas, stftData, title = 'Spectrogram', referen
   ctx.lineTo(left + plotW, top + plotH);
   ctx.stroke();
 
-  // Y-axis freq ticks (log-spaced)
+  // Y-axis freq ticks
   ctx.fillStyle = tc.label;
   ctx.font = '9px Inter, system-ui, sans-serif';
-  for (const f of [100, 200, 500, 1000, 2000, 5000]) {
+  const tickFreqs = useLog
+    ? [100, 200, 500, 1000, 2000, 5000]
+    : [200, 500, 1000, 1500, 2000, 3000, 4000, 5000];
+  for (const f of tickFreqs) {
     if (f < minF || f > maxF) continue;
-    const logF = Math.log10(f);
-    const y = top + plotH * (1 - (logF - logMinF) / logRangeF);
+    const y = freqToY(f);
     const label = f >= 1000 ? (f / 1000) + 'k' : String(f);
     ctx.fillText(label, left - ctx.measureText(label).width - 4, y + 3);
     ctx.strokeStyle = tc.grid;
@@ -856,6 +884,75 @@ export function drawSpectrogram(canvas, stftData, title = 'Spectrogram', referen
   ctx.font = '10px Inter, system-ui, sans-serif';
   ctx.fillText('Hz', -8, 0);
   ctx.restore();
+}
+
+export function mountSpectrogram(container, stftData, title, referenceFreqs, harmonicDecay) {
+  if (!stftData || !stftData.data || !stftData.data.length) return;
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'spectrogram-widget';
+  container.appendChild(wrapper);
+
+  const canvas = document.createElement('canvas');
+  canvas.className = 'chart-canvas-tall';
+  wrapper.appendChild(canvas);
+
+  const controls = document.createElement('div');
+  controls.className = 'spectrogram-controls';
+  wrapper.appendChild(controls);
+
+  let logScale = true;
+  let showTracked = true;
+
+  const logBtn = document.createElement('button');
+  logBtn.className = 'harmonic-toggle active';
+  logBtn.innerHTML = '<span class="ht-line" style="border-top-style:solid"></span>Log Y';
+  controls.appendChild(logBtn);
+
+  const linBtn = document.createElement('button');
+  linBtn.className = 'harmonic-toggle';
+  linBtn.innerHTML = '<span class="ht-line" style="border-top-style:solid"></span>Linear Y';
+  controls.appendChild(linBtn);
+
+  const trackedHarmonics = harmonicDecay && harmonicDecay.harmonics
+    ? harmonicDecay.harmonics.map(h => ({ harmonic: h.harmonic, hz: h.hz }))
+    : null;
+
+  if (trackedHarmonics) {
+    const snapBtn = document.createElement('button');
+    snapBtn.className = 'harmonic-toggle active';
+    snapBtn.textContent = 'Show tracked Hz';
+    controls.appendChild(snapBtn);
+    snapBtn.addEventListener('click', () => {
+      showTracked = !showTracked;
+      snapBtn.classList.toggle('active', showTracked);
+      redraw();
+    });
+  }
+
+  logBtn.addEventListener('click', () => {
+    if (logScale) return;
+    logScale = true;
+    logBtn.classList.add('active');
+    linBtn.classList.remove('active');
+    redraw();
+  });
+
+  linBtn.addEventListener('click', () => {
+    if (!logScale) return;
+    logScale = false;
+    linBtn.classList.add('active');
+    logBtn.classList.remove('active');
+    redraw();
+  });
+
+  function redraw() {
+    requestAnimationFrame(() => drawSpectrogram(canvas, stftData, title, referenceFreqs, {
+      logScale,
+      trackedHarmonics: showTracked ? trackedHarmonics : null,
+    }));
+  }
+  redraw();
 }
 
 // ── Harmonic Decay Chart ──────────────────────────────────────────────

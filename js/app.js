@@ -10,8 +10,8 @@ import {
 import {
   drawWaveform, drawFFT, drawBinPowers, drawDamping,
   drawFFTOverlay, drawBinPowerCompare, drawMirrorFFT,
-  drawSpectrogram,
   drawDecayRateCompare,
+  mountSpectrogram,
   mountHarmonicDecayChart, mountHarmonicDecayCompareChart,
 } from './charts.js';
 import { PROFILE_STEPS, STRING_CATEGORIES, CHORD_DIAGRAMS, STRING_DIAGRAMS, CHORD_NOTES, computeProfile } from './profile.js';
@@ -534,10 +534,7 @@ function renderSingleAnalysis(a) {
     requestAnimationFrame(() => draw(canvas));
   }
   if (a.stft) {
-    const sc = document.createElement('canvas');
-    sc.className = 'chart-canvas-tall';
-    analysisOut.appendChild(sc);
-    requestAnimationFrame(() => drawSpectrogram(sc, a.stft, `${a.name} — Spectrogram`, refFreqs));
+    mountSpectrogram(analysisOut, a.stft, `${a.name} — Spectrogram`, refFreqs, a.harmonicDecay);
   }
   if (a.harmonicDecay) {
     mountHarmonicDecayChart(analysisOut, a.harmonicDecay, `${a.name} — Harmonic Decay`);
@@ -2185,10 +2182,7 @@ function renderStepComparison(perGuitar, step, container) {
     specTitle.textContent = 'Spectrograms';
     container.appendChild(specTitle);
     for (const a of specGuitars) {
-      const sc = document.createElement('canvas');
-      sc.className = 'chart-canvas-tall';
-      container.appendChild(sc);
-      requestAnimationFrame(() => drawSpectrogram(sc, a.stft, `${a.name} — Spectrogram`, refFreqs));
+      mountSpectrogram(container, a.stft, `${a.name} — Spectrogram`, refFreqs, a.harmonicDecay);
     }
   }
 }
@@ -2505,10 +2499,7 @@ function renderSingleAnalysisInto(a, container, guitarName, chord, refFreqs) {
     requestAnimationFrame(() => draw(canvas));
   }
   if (a.stft) {
-    const sc = document.createElement('canvas');
-    sc.className = 'chart-canvas-tall';
-    container.appendChild(sc);
-    requestAnimationFrame(() => drawSpectrogram(sc, a.stft, `${a.name} — Spectrogram`, fftRef));
+    mountSpectrogram(container, a.stft, `${a.name} — Spectrogram`, fftRef, a.harmonicDecay);
   }
   if (a.harmonicDecay) {
     mountHarmonicDecayChart(container, a.harmonicDecay, `${a.name} — Harmonic Decay`);
